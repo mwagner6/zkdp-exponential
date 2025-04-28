@@ -1,0 +1,33 @@
+[package]
+name = "dp_client"
+version = "0.1.0"
+edition = "2021"
+authors = ["Ari Biswas <aribiswas3@gmail.com>"]
+description = "A pure-Rust implementation for auditable DP"
+keywords = [
+  "secret-sharing",
+  "Shamir",
+  "cryptography",
+  "secure-computation",
+  "mpc",
+  "differential privacy"
+]
+[dependencies]
+coinflip = "*"
+rand= { package = "rand", version = "0.8.5" }
+rand_core = { version = "0.5.1"}
+openssl-sys = "0.9"
+openssl = "0.10"
+time = "*"
+curve25519-dalek = "3"
+sha3 = "*"
+bulletproofs = "*"
+merlin = "*"
+curve25519-dalek-ng = "*"
+
+[dev-dependencies]
+criterion = "0.4"
+
+[[bench]]
+name = "ccs_benchmarks"
+harness = false
