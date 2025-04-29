@@ -1,0 +1,49 @@
+.game-navbar {
+  display: flex;
+  align-items: center;
+  padding: 1rem;
+  background-color: #f8f9fa;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.game-back-button {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0.5rem;
+  margin-right: 1rem;
+}
+
+.game-navbar-title {
+  flex-grow: 1;
+  font-size: 1.2rem;
+  font-weight: 500;
+}
+
+.game-navbar-right {
+  display: flex;
+  gap: 1.5rem;
+  align-items: center;
+  margin-left: auto;
+}
+
+.color-reference {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.color-square {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+}
+
+.color-square.private {
+  background-color: #007bff; /* Blue */
+}
+
+.color-square.public {
+  background-color: #28a745; /* Green */
+} 

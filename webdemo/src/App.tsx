@@ -4,6 +4,7 @@ import NavigationButton from './components/navigation/NavigationButton'
 import ZeroKnowledgePage from './components/pages/ZeroKnowledgePage'
 import SigmaProtocolPage from './components/pages/SigmaProtocolPage'
 import GameScreen from './components/pages/GameScreen'
+import DPPage from './components/pages/DPPage'
 
 function App() {
   const [currentPage, setCurrentPage] = useState(1)
@@ -18,6 +19,10 @@ function App() {
     {
       title: "Sigma-OR Protocol",
       content: <SigmaProtocolPage />
+    },
+    {
+      title: "Differential Privacy",
+      content: <DPPage />
     },
     {
       title: "Interactive Demo",
@@ -39,7 +44,7 @@ function App() {
   };
 
   const currentPageContent = pages[currentPage - 1]
-  const isGameScreen = currentPage === 3;
+  const isGameScreen = currentPage === 4;
   const contentClass = isGameScreen 
     ? 'game-screen'
     : transitionDirection 
