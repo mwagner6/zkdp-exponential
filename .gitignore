@@ -1,1 +1,53 @@
 /target
+
+webdemo/# Dependencies
+webdemo//node_modules
+webdemo//.pnp
+webdemo/.pnp.js
+
+webdemo/# Testing
+webdemo//coverage
+
+webdemo/# Production
+webdemo//build
+webdemo//dist
+
+webdemo/# Misc
+webdemo/.DS_Store
+webdemo/.env.local
+webdemo/.env.development.local
+webdemo/.env.test.local
+webdemo/.env.production.local
+webdemo/.env
+
+webdemo/# Logs
+webdemo/npm-debug.log*
+webdemo/yarn-debug.log*
+webdemo/yarn-error.log*
+
+webdemo/# Editor directories and files
+webdemo/.idea
+webdemo/.vscode
+webdemo/*.suo
+webdemo/*.ntvs*
+webdemo/*.njsproj
+webdemo/*.sln
+webdemo/*.sw?
+
+webdemo/# TypeScript
+webdemo/*.tsbuildinfo
+
+webdemo/# Optional npm cache directory
+webdemo/.npm
+
+webdemo/# Optional eslint cache
+webdemo/.eslintcache
+
+webdemo/# Optional REPL history
+webdemo/.node_repl_history
+
+webdemo/# Output of 'npm pack'
+webdemo/*.tgz
+
+webdemo/# Yarn Integrity file
+webdemo/.yarn-integrity

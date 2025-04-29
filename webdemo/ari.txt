@@ -1,0 +1,2130 @@
+Interactive Proofs For Differentially Private Counting
+Ari Biswas
+University Of Warwick
+United Kingdom
+aribiswas3@gmail.com
+Graham Cormode
+Meta AI
+United Kingdom
+g.cormode@warwick.ac.uk
+ABSTRACT
+Differential Privacy (DP) is often presented as a strong privacyenhancing technology with broad applicability and advocated as
+a de facto standard for releasing aggregate statistics on sensitive
+data. However, in many embodiments, DP introduces a new attack surface: a malicious entity entrusted with releasing statistics
+could manipulate the results and use the randomness of DP as a
+convenient smokescreen to mask its nefariousness. Since revealing the random noise would obviate the purpose of introducing
+it, the miscreant may have a perfect alibi. To close this loophole,
+we introduce the idea of Interactive Proofs For Differential Privacy,
+which requires the publishing entity to output a zero knowledge
+proof that convinces an efficient verifier that the output is both
+DP and reliable. Such a definition might seem unachievable, as a
+verifier must validate that DP randomness was generated faithfully
+without learning anything about the randomness itself. We resolve
+this paradox by carefully mixing private and public randomness to
+compute verifiable DP counting queries with theoretical guarantees
+and show that it is also practical for real-world deployment. We
+also demonstrate that computational assumptions are necessary
+by showing a separation between information-theoretic DP and
+computational DP under our definition of verifiability.
+CCS CONCEPTS
+• Security and privacy;
+KEYWORDS
+differential privacy, secure multiparty computation, verifiable computation, zero knowledge
+ACM Reference Format:
+Ari Biswas and Graham Cormode. 2023. Interactive Proofs For Differentially
+Private Counting. In Proceedings of the 2023 ACM SIGSAC Conference on
+Computer and Communications Security (CCS ’23), November 26–30, 2023,
+Copenhagen, Denmark. ACM, New York, NY, USA, 15 pages. https://doi.org/
+10.1145/3576915.3616681
+1 INTRODUCTION
+We are living in an age of delegation, where the bulk of our digital
+data is held and processed by others in an opaque fashion. Our
+interactions are collated by digital applications that continually
+Permission to make digital or hard copies of all or part of this work for personal or
+classroom use is granted without fee provided that copies are not made or distributed
+for profit or commercial advantage and that copies bear this notice and the full citation
+on the first page. Copyrights for components of this work owned by others than the
+author(s) must be honored. Abstracting with credit is permitted. To copy otherwise, or
+republish, to post on servers or to redistribute to lists, requires prior specific permission
+and/or a fee. Request permissions from permissions@acm.org.
+CCS ’23, November 26–30, 2023, Copenhagen, Denmark
+© 2023 Copyright held by the owner/author(s). Publication rights licensed to ACM.
+ACM ISBN 979-8-4007-0050-7/23/11. . . $15.00
+https://doi.org/10.1145/3576915.3616681
+send our personal information to the “cloud”. Servers in the cloud,
+typically owned by large monolithic organizations, such as Google,
+AWS or Microsoft, then perform computations on our private data
+to publish aggregate statistics for social utility. For example, we
+send our GPS coordinates to services like Strava and Google which,
+in exchange, use this information to recommend low-traffic cycling
+routes [52]. Similarly, we let entertainment companies like Netflix,
+YouTube, TikTok and Hulu know our personal preferences so that
+they can better recommend content for us to consume [10]. National
+census bureaus collect personal information to publish aggregate
+statistics about the population, and consider doing so a moral duty
+to ensure transparency in the government’s policies [16].
+However, it is often the case that published aggregate statistics
+leak information about the activity of individuals. For example,
+Garfinkel et al. and Kasiviswanathan et al. describe practical reconstruction attacks that can be used to infer an individual’s private
+data from aggregate population statistics [35, 44]. Boyd et al. show
+that published census data has been used to discriminate against
+groups in society based on race [16]. Hence the information that is
+released, and how it is computed, requires careful scrutiny.
+In response to these concerns, the privacy and security community have sought to apply various privacy enhancing technologies
+to protect the privacy of individuals contributing to data releases.
+Most relevant to this discussion is Differential Privacy (DP) and its
+generalizations, which require computations to be randomized, in
+order to offer the (informally stated) promise that users will not
+be adversely affected by allowing their data to be used. Typically,
+this is achieved by adding carefully calibrated random noise to the
+output, at the expense of reducing the accuracy of the computation.
+Differential privacy is most commonly studied in the trusted curator
+model, where a single entity receives all the sensitive data, and
+is entrusted to execute the algorithm to apply the random noise.
+Variations that modify the trust and computational model include
+local privacy [57], shuffle privacy [5, 21], computational differential
+privacy [50] and multi-party differential privacy [48].
+A consistent theme across all existing work is to view DP simply
+as a privacy-preserving mechanism. In this paper, we shift the focus
+and view differential privacy through an adversarial lens: what if
+the entity responsible for releasing aggregate DP statistics seeks to
+abuse the protocol and pick noise chosen to distort the statistics, using
+differential privacy as an attack vector?
+That is, a malicious entity may tamper with the computation in
+order to publish biased statistics, and claim this reflects the true
+outcome; any discrepancies may be dismissed as artifacts of random noise. Consider a counting query DP protocol to determine the
+winner of a plurality election, where the users vote for 1 out of 𝑀
+candidates (say, which topping people prefer on their pizza). A corrupted aggregator might not be interested in any particular user’s
+vote but in biasing the aggregate output of the protocol instead.
+CCS ’23, November 26–30, 2023, Copenhagen, Denmark Ari Biswas and Graham Cormode
+Thus, if that server has auxiliary information about the preferences
+of a subset of users, they might tamper with the protocol to exclude
+those honest voters from the election or tamper with the protocol
+to bias the results of the election (say, to pineapple) and blame any
+discrepancies in the result on random noise introduced by DP. Note
+that some loss in accuracy for privacy is unavoidable. By definition,
+DP requires the output be perturbed by private randomness. Often,
+outputting such random statistics creates tensions between publishing entity and the downstream consumer. In 2021, the State Of
+Alabama filed a lawsuit claiming that the use of DP on census data
+was illegal [42], citing the inaccuracies introduced by DP. Thus,
+to ensure public trust in DP, it is critical to verify that any loss in
+utility can be attributed solely to unavoidable DP randomness.
+To this end, we formally introduce the idea of Interactive Proofs
+For Differential Privacy in both the trusted curator1
+setting and the
+multi-party setting in presence of active adversaries2
+. Our contributions are as follows:
+(1) We formally define for Interactive Proofs For Differential Privacy in both the trusted curator and client-server multiparty
+setting [6]. Informally, the entity responsible for releasing
+DP statistics must also output a zero knowledge proof to
+verify that the statistic was computed correctly with respect
+to committed client inputs and the private randomness generated faithfully. Such a proof reveals no additional information and still enforces that user privacy is protected via
+DP but ensures that the curator cannot use DP randomness
+maliciously.
+(2) We show concrete instantiations of verifiable DP by computing DP counting queries (histograms) in the trusted curator
+and client-server multiparty settings. In the trusted curator setting, there is a single aggregating server that sees
+client data in plaintext and is responsible for outputting a
+DP histogram and a proof that the DP noise was generated
+faithfully. In the client-server MPC setting, clients secret
+share the inputs and send them to 𝐾 ≥ 2 servers, who then
+participate in an MPC protocol to output DP histograms. The
+protocol itself is secure in that not even the participating
+servers are able to learn any new information beyond the
+output nor are they able to tamper with the protocol.
+(3) We conduct experiments to show that our protocols with
+formal theoretical guarantees are also practical. Additionally, we describe how our protocol ΠBin, for verifiable DP
+counting, can be combined with existing (non-verifiable)
+DP-MPC protocols, such as PRIO [25] and Poplar [15], to
+enforce verifiability.
+(4) We demonstrate that information-theoretic verifiable DP is
+impossible. Specifically, if both the prover and verifier are
+computationally unbounded, then statistical zero knowledge
+and unconditional soundness cannot hold simultaneously.
+Thus we could either prevent an all-powerful curator from
+1When we say trusted curator, we imply that there is a single server that can view
+client inputs in plaintext. However, this server could still be corrupted and therefore,
+it must prove that the final released output was computed as prescribed by the DP
+protocol. Of course in the single server setting we cannot protect client privacy. The
+focus is on ensuring the output is reliable.
+2By active adversaries, we mean participants that may deviate from protocol specifications arbitrarily. In the MPC setting we can guarantee both privacy of client inputs
+and reliability of output.
+manipulating DP protocols or an all-powerful verifier from
+being able to distinguish between neighbouring datasets
+from the output, but not both. This result is related to an
+open problem (Open Problem 10.6) of Vadhan [56], which
+asks “Is there a computational task solvable by a single curator
+with computational differential privacy but is impossible to
+achieve with information-theoretic differential privacy?”. In
+Section 5 we relate our result to efforts at resolving this
+question.
+2 PRELIMINARIES
+2.1 Notation
+We write 𝑥
+𝑅←− 𝑈 to denote that 𝑥 was uniformly sampled from
+a set 𝑈 . We denote vectors with an arrow on top as in 𝑥® ∈ Z
+𝑀
+𝑞
+,
+where 𝑀 represents the number of coordinates in the vector and
+Z𝑞 represents a prime order finite field of integers of size 𝑞. We
+write 𝑎® + ®𝑏 to mean coordinate-wise vector addition 𝑎 + 𝑏 mod 𝑞,
+where 𝑎 and 𝑏 correspond to values at the same position of 𝑎® and
+®𝑏. Similarly, when we write 𝑎® × ®𝑏, we refer to the coordinate-wise
+Hadamard product between the two vectors.
+2.2 Privacy and Security Background
+Indistinguishability. We define a computational notion of indistinguishability.
+Definition 2.1 (Computational Indistinguishability). Fix security
+parameter 𝜅 ∈ N. Let {𝑋𝜅 }𝜅∈𝑁 and {𝑌𝜅 }𝜅∈𝑁 be probability distributions over {0, 1}
+poly(𝜅)
+. We say that {𝑋𝜅 }𝜅∈𝑁 and {𝑌𝜅 }𝜅∈𝑁 are
+computationally indistinguishable {𝑋𝜅 }𝜅∈𝑁
+𝑐
+≡ {𝑌𝜅 }𝜅∈𝑁 if for all
+non-uniform PPT turing machines 𝐷 (“distinguishers”), there exists
+a negligible function 𝜇(𝜅) such for every 𝜅 ∈ N
+
+
+
+Pr[𝐷(𝑋𝜅) = 1] − Pr[𝐷(𝑌𝜅) = 1]
+
+
+ ≤ 𝜇(𝜅) (1)
+Commitments. Commitments are used in our schemes to ensure
+that participants cannot change their response during the protocol.
+Definition 2.2 (Commitments). Let 𝜅 ∈ N be the security parameter. A non-interactive commitment scheme consists of a pair of
+probabilistic polynomial time algorithms (Setup, Com). The setup
+algorithm pp ← Setup(1
+𝜅
+) generates public parameters pp. Given
+a message space Mpp and randomness space Rpp, the commitment
+algorithm Compp defines a function Mpp × Rpp → Cpp that maps a
+message to the commitment space Cpp using the random space. For
+a message 𝑥 ∈ Mpp, the algorithm samples 𝑟𝑥
+𝑅←− Rpp and computes
+𝑐𝑥 = Compp (𝑥, 𝑟𝑥 ). When the context is clear, will drop the subscript
+and write Compp as Com.
+Definition 2.3 (Homomorphic Commitments). A homomorphic
+commitment scheme is a non-interactive commitment scheme such
+that Mpp and Rpp are fields (with (+, ×)) and Cpp is an abelian group
+with the ⊗ operator, such that for all 𝑥1, 𝑥2 ∈ Mpp and 𝑟1, 𝑟2 ∈ Rpp
+we have
+Com(𝑥1, 𝑟1) ⊗ Com(𝑥2, 𝑟2) = Com(𝑥1 + 𝑥2, 𝑟1 + 𝑟2) (2)
+Throughout this paper, when we use a commitment scheme, we
+mean a non-interactive homomorphic commitment scheme with
+Interactive Proofs For Differentially Private Counting CCS ’23, November 26–30, 2023, Copenhagen, Denmark
+the following properties (stated informally here, but formalized in
+the Appendix A):
+(1) Hiding: A commitment 𝑐𝑥 reveals no information about
+𝑥 and 𝑟𝑥 to a computationally bounded adversary (Definition A.2).
+(2) Binding: Given a commitment 𝑐𝑥 to 𝑥 using 𝑟𝑥 , there is
+no efficient algorithm that can find 𝑥
+′
+and 𝑟𝑥
+′ such that
+Com(𝑥
+′
+, 𝑟𝑥
+′ ) = 𝑐𝑥 = Com(𝑥, 𝑟𝑥 ) (Definition A.3).
+(3) Zero Knowledge OR Opening: Given 𝑐𝑥 , the committing
+party can prove to a polynomial time verifier that 𝑐𝑥 is a
+commitment to either 1 or 0 without revealing which one it is.
+We denote such a proof as ΠOR and say it securely computes
+the oracle OOR, which returns true if 𝑐𝑥 ∈ 𝐿Bit
+𝐿Bit = {𝑐𝑥 : 𝑥 ∈ {0, 1} ∧ 𝑟𝑥 ∈ Z𝑞 ∧ 𝑐𝑥 = Com(𝑥, 𝑟𝑥 )} (3)
+See Appendix B for a concrete construction of the Σ-OR
+proof using Pedersen Commitment schemes from [27].
+In all our experiments and security proofs, we use Pedersen Commitments (PC), though one could replace PC with other schemes [7,
+30, 58], and still satisfy all the above properties.
+Differential Privacy (DP and IND-CDP). We consider two variants of the privacy definition.
+Definition 2.4 (Information Theoretic DP [56]). Fix 𝑛 ∈ N, 𝜖 ≥ 0
+and 𝛿 ≤ 𝑛
+−𝜔(1)
+. An algorithm M : X𝑛 × 𝑄 → Y satisfies (𝜖, 𝛿)
+differential privacy if for every two neighboring datasets 𝑋 ∼ 𝑋
+′
+s.t.
+||𝑋 − 𝑋
+′
+||1 = 1 and for every query 𝑄 ∈ Q we have for all 𝑇 ⊆ Y
+Pr
+𝑀𝑄 (𝑋) ∈ 𝑇
+
+≤ 𝑒
+𝜖
+Pr
+𝑀𝑄 (𝑋
+′
+) ∈ 𝑇
+
++ 𝛿 (4)
+A direct corollary of the above definition is that, given 𝑀𝑄 (𝑋)
+and 𝑀𝑄 (𝑋
+′
+), with probability 1 − 𝛿 even an unbounded Turing
+Machine (TM) 𝐷 is unable to distinguish between the outputs up
+to statistical distance 𝜖.
+Definition 2.5 (Computational DP [50]). Fix 𝜅 ∈ N and 𝑛 ∈ N.
+Let 𝜖 ≥ 0 and 𝛿 (𝜅) ≤ 𝜅
+−𝜔(1) be a negligible function, and let
+M = {M𝜅 : X𝑛
+𝜅 → Y𝜅 }𝜅∈N be a family of randomised algorithms,
+where X𝜅 and Y𝜅 can be represented by poly(𝜅)-bit strings. We
+say that M is computationally 𝜖-differentially private if for every
+non-uniform PPT TM’s (“distinguisher”) 𝐷, for every query 𝑄 ∈ Q,
+and every neighbouring dataset 𝑋 ∼ 𝑋
+′ ∈ X𝑛
+𝜅
+, ∀𝑇 ⊆ Y𝜅 we have
+Pr h
+𝐷(M𝜅 (𝑋, 𝑄) ∈ 𝑇 ) = 1
+i
+≤ 𝑒
+𝜖
+·Pr h
+𝐷(M𝜅 (𝑋
+′
+, 𝑄) ∈ 𝑇 ) = 1
+i
++𝛿 (𝜅)
+(5)
+Definition 2.6. (DP Error) Let M : X × Q → Y be an (𝜖, 𝛿)-DP
+mechanism over Q. Assume that the 𝐿1 norm is well-defined on
+Y. For any 𝑛 ∈ N, 𝑋 ∈ X𝑛
+, we define the expected error of the
+mechanism M relative to 𝑄 as
+ErrM,𝑄 = E[∥𝑄(𝑋) − M𝑄 (𝑋) ∥1] (6)
+where the expectation is taken over internal randomness of M.
+When the context is clear, to simplify notation we drop subscripts
+and refer to equation (6) as just Err. It is well known that for
+negligible 𝛿, the counting query (i.e., DP histograms) has error
+Err = 𝑂(
+1
+𝜖
+) in the trusted curator model and MPC model [25, 56].
+Binomial Mechanism. We use Binomial noise to achieve privacy.
+Algorithm 1 Πmorra A protocol for sampling a public coin
+Input: 𝜆1, . . . , 𝜆𝐾
+Output: 𝑧
+𝑅←− {0, 1}
+(1) Each server 𝑘 ∈ [𝐾] is asked to sample 𝑚𝑘
+𝑅←− Z𝑞 uniformly
+at random.
+(2) Commit: Each server samples 𝑟𝑚𝑘
+𝑅←− Z𝑞 and broadcasts
+𝑐𝑘 = Com(𝑚𝑘
+, 𝑟𝑘
+) to all other servers. Assume without loss
+of generality that the servers broadcast their commitments
+in natural lexicographical order 𝑘 ∈ [𝐾].
+(3) Reveal: Once all servers have received 𝑐𝑘
+, they now
+broadcast 𝑚𝑘
+, 𝑟𝑚𝑘
+to all servers in the reverse order in
+which the commitments arrived. It is important that the
+reverse order is respected as it guarantees that each server’s
+inputs are independent of the inputs of other servers. Once
+all commitments are revealed, each server verifies that
+Com(𝑚𝑘
+, 𝑟𝑘
+) = 𝑐𝑘
+. If this test fails for any 𝑘 or one of the
+servers does not respond, the protocol is aborted.
+(4) Each server computes 𝑋 = (𝑚1 + · · · + 𝑚𝑘
+) mod 𝑞. We
+have 𝑋
+𝑅←− Z𝑞. If 𝑋 ≤ ⌈𝑞
+2
+⌉ then 𝑐𝑖 = 0. Otherwise 𝑐𝑖 = 1.
+Thus we can use this protocol to generate unbiased coins
+and uniformly random values.
+Lemma 2.7 (Binomial Mechanism). Let 𝑋 = (𝑥1, . . . , 𝑥𝑛) ∈ Z
+𝑛
+𝑞
+and define counting query 𝑄(𝑋) =
+Í𝑛
+𝑖=1
+𝑥𝑖
+. Fix 𝑛𝑏 > 30, 0 <
+𝛿 ≤ 𝑜 (
+1
+𝑛𝑏
+) and let 𝑍 ∼ Binomial(𝑛𝑏
+,
+1
+2
+). Then 𝑍 + 𝑄(𝑋) is (𝜖, 𝛿)-
+differentially private with 𝜖 = 10√︃
+1
+𝑛𝑏
+ln 2
+𝛿
+.
+It is easy to see that the binomial mechanism incurs constant
+DP error (i.e., it is independent of 𝑛 and depends only on 𝜖, 𝛿). The
+proof for Lemma 2.7 can be found in [36].
+Morra. We will prove zero knowledge (or security for MPC) assuming that the provers and verifiers (or all participants of the
+MPC, respectively) have access to an oracle that returns a polynomial sized stream of publicly random unbiased bits. In other words,
+we assume that all parties have access to an oracle functionality
+Omorra (1
+𝜅
+, 𝜆1, . . . , 𝜆𝐾) = 𝑧 where 𝑧
+𝑅←− {0, 1} and 𝜆𝑘
+refers to the
+empty string for all 𝑘 ∈ [𝐾].
+In practice, this oracle is replaced by a lightweight MPC protocol
+such as Πmorra defined in Algorithm 1, which is a modification of
+an ancient game called Morra3
+, that securely computes Omorra in
+the presence of a dishonest majority of active participants. It is
+easy to see that as long as one participant is honest and samples
+its value uniformly at random, the final protocol produces an unbiased coin. Since the commitment is hiding, a corrupt party cannot
+infer any information about another party’s choice 𝑚𝑘
+from the
+published 𝑐𝑚𝑘
+and by the binding property, a participant cannot
+change their decision after observing another party’s opening. A
+formal simulator-style proof can be found in Blum’s seminal work
+for flipping coins over a telephone [12] or any introductory textbook on MPC (under the title of ‘weak coin flipping’). If we omit the
+final thresholding step, the above protocol can be used to sample
+𝑧
+𝑅←− 𝑍𝑞.
+3https://en.wikipedia.org/wiki/Morra_(game)
+CCS ’23, November 26–30, 2023, Copenhagen, Denmark Ari Biswas and Graham Cormode
+Each client proves to
+the verifier and the
+provers in zero
+knowledge that their
+input x ∈ L
+Verifier
+Clients
+Provers
+X2
+X1
+ clients send shares
+of their input to the
+provers and hiding
+commitments of these
+shares to the verifier.
+n
+X2
+X1
+X2
+X1
+y = ℳ(X1, X2)
+The provers and
+verifier exchange
+messages. At the end
+the prover output
+ and
+the verifier decides to
+accept or not.
+y = ℳ(X1, X2)
+Verifiable DP
+Protocol
+Client
+Verification
+Setup And
+Inputs
+Figure 1: The figure above describes the three stages of the
+protocol. Any message sent and received by the verifier is
+accessible to all clients and provers. In the setup stage, public parameters are generated, and each client 𝑖 ∈ [𝑛] sends
+inputs to the prover and the verifier. In the verification stage,
+each client interactively exchanges messages with the verifier and the provers to establish their private input 𝑥 ∈ 𝐿 in
+zero knowledge. If a client fails to do so, they are tagged as
+dishonest and excluded from the protocol. In the last stage,
+each prover samples private randomness and then interactively exchanges messages with other provers and the verifier
+to jointly compute 𝑦 = M𝑄 (𝑋1, . . . , 𝑋𝐾) for some common
+knowledge query 𝑄. The verifier validates that the provers’
+output 𝑦 was computed as prescribed over the inputs of honest clients only.
+3 SECURITY MODELS FOR VERIFIABLE DP
+This section introduces verifiable DP in both the single trusted
+curator and MPC model. In both settings, the input for the protocol comes from 𝑛 distinct clients. Informally, the main difference
+between the two models is that the former has plaintext access
+to the client data. In contrast, in MPC-DP, the clients secret share
+(or partition) their inputs and each server receives information
+theoretically hiding shares (or a partial view) of client inputs. Additionally, instead of a single trusted entity computing M, the servers
+participate in an MPC protocol Π to securely compute M without
+revealing any information other than M𝑄 (𝑥1, . . . , 𝑥𝑛).
+For some queries 𝑄 ∈ Q, the protocol requires that the client
+inputs come from a restricted subset 𝐿 ⊆ X. For such cases, the
+clients must send a zero knowledge proof so that we can verify that
+the inputs come from the specified language without learning any
+other information about the inputs. Examples of such proofs can
+be found in the prior literature [15, 18, 20, 25]. In the definitions
+below and in what follows, we use the terms Pv (prover), server and
+curator interchangeably, and the terms analyst and Vfr (verifier) to
+refer to the same entity.
+3.1 Verifiable DP Protocols
+Next, we describe the MPC model and later discuss how it can be
+specialised to the trusted curator model. Let M𝑄 be a DP (or INDCDP) mechanism as described in Definition 2.4 (or Definition 2.5
+respectively) for a query 𝑄 ∈ Q. Let 𝜅 ∈ N denote the security
+parameter. A verifiable DP mechanism for M𝑄 consists of three interactive protocols (Setup, Verify, Π), between 𝑛 clients that have
+private inputs (𝑥1, . . . , 𝑥𝑛) ∈ X and 𝐾+1 “next-message-computingalgorithms” Vfr and (Pv1, . . . , Pv𝐾). In next-message computing
+algorithms, party 𝑉 ’s message 𝑚𝑖 at round 𝑖 is determined by its
+input, messages it has received so far from other parties and internal randomness 𝑟®𝑉 . Let Pv® denote a succinct representation for
+(Pv1, . . . , Pv𝐾). Figure 1 summarises the information flow between
+the parties.
+In Setup (left box in Figure 1) all parties jointly generate public parameters, and the provers and verifier receives inputs from
+𝑛 clients. Let pp ← Setup(1
+𝜅
+) denote public parameters. Each
+prover Pv𝑘
+receives on its input tape 𝑛 secret shares of client inputs
+
+⟦𝑥1⟧𝑘
+, . . . , ⟦𝑥𝑛⟧𝑘
+
+, succinctly denoted by 𝑋®
+𝑘
+. The verifier receives
+hiding commitments of the above shares. All messages sent and
+received by the verifier are accessible to all other parties.
+If the query 𝑄 restricts client inputs to a subset 𝐿 ⊆ X then
+in Verify phase (middle box in Figure 1) the clients interactively
+exchange messages with the provers and the verifier to prove in
+zero knowledge that their private input 𝑥 ∈ 𝐿. If clients fail to do
+so, they are excluded from the protocol.
+Once dishonest clients with illegal inputs have been excluded
+and honest client inputs have been recorded, the clients play no
+further role in the protocol. The third protocol Π describes a multiparty interactive proof system, where the provers and the verifiers
+interactively exchange messages for poly(𝜅) rounds (right box in
+Figure 1). Let 𝑧 ∈ {0, 1}
+poly(𝜅) denote auxiliary input available to
+the verifier. At the end of the protocol, the provers send 𝑦® ∈ Y to
+the Vfr, who then outputs either 0 or 1, with 1 indicating that the
+verifier accepts the provers’ claim that, the real protocol output
+is indistinguishable from an ideal computation, i.e. 𝑦® = M𝑄 (𝑋).
+Let outh
+Vfr(pp,𝑟®𝑣, 𝑧),𝑦, ® Pv® (pp,𝑟®
+Pv®
+)
+i
+∈ {0, 1} denote the verifying
+algorithm’s decision. In the definition below, we write out(Vfr, Pv)
+as shorthand for the verifier output.
+The trusted curator can be understood as essentially this model
+with a single prover, i.e., we set 𝐾 = 1. Thus the only functional
+difference between MPC-DP and trusted curator DP is that in the
+latter case, the curator sees all the data in plaintext. In MPC, the
+data may be secret, shared or partitioned across the provers. In
+both cases, the prover(s) must prove they did not tamper with
+the protocol to generate an output distinguishable from the ideal
+computation of M 4
+.
+Definition 3.1 (Verifiable DP). An interactive verifiable DP protocol for M is an interactive message passing protocol Π, such that
+for 𝑛 ∈ N honest clients, 𝐾 ≥ 1 provers denoted by Pv® and a single
+verifier Vfr, there exist negligible functions 𝛿𝑐 and 𝛿𝑠 such that the
+following hold:
+4When there is a single server only, the server can see inputs in plaintext. Thus in the
+Verify phase, the clients only need to prove to the verifier in zero knowledge that the
+inputs are legal
+Interactive Proofs For Differentially Private Counting CCS ’23, November 26–30, 2023, Copenhagen, Denmark
+(1) Completeness: Let 𝑋 = (𝑥1, . . . , 𝑥𝑛) ∈ X𝑛 be the legal
+client inputs that have been split in 𝐾 shares (𝑋®
+1, . . . ,𝑋®𝐾),
+where 𝑋®
+𝑗 denotes the input sent to the 𝑗’th prover, then as
+long as the Pv® and Vfr honestly execute Π, then we have
+Pr
+
+
+
+
+
+
+
+
+out(Vfr, Pv® ) = 0 :
+pp ← Setup(1
+𝜅
+)
+Pv𝑗 ← (𝑋®
+𝑗
+,𝑟®Pv𝑗
+, pp)
+Vfr ← (𝑧,𝑟®𝑣, pp)
+𝑦® ← Π(Pv® , Vfr, pp)
+
+
+
+
+
+
+
+
+≤ 𝛿𝑐 .
+(2) Soundness: Let 𝑋 = (𝑥1, . . . , 𝑥𝑛) ∈ X𝑛 be the legal client
+inputs. For any subset 𝐼 ⊆ [𝐾], let Pv®∗ denote the collection
+of corrupted provers, indexed by 𝐼, that deviate from Π, and
+Pv® denote the set of honest provers not indexed by 𝐼. For any
+output5 𝑦® ≠ M (𝑋, 𝑄), we have
+Pr
+
+
+
+
+
+
+
+
+out(Vfr, Pv® , Pv®∗
+) = 1 :
+pp ← Setup(1
+𝜅
+)
+Pv𝑗 ← (𝑋®
+𝑗
+,𝑟®Pv𝑗
+, pp)
+Vfr ← (𝑧,𝑟®𝑣, pp)
+𝑦® ← Π(Pv®∗
+, Vfr, pp)
+
+
+
+
+
+
+
+
+≤ 𝛿𝑠 .
+Note that the correctness of the protocol is defined in terms
+of the actual inputs the clients sent to M and not the inputs
+a corrupted set of provers might have used.
+(3) Zero Knowledge: For any subset 𝐼 ⊆ [𝐾], let Pv®∗ denote
+the collection of corrupted provers, indexed by 𝐼, that deviate from Π, and Pv® denote the set of honest provers. Let
+Viewh
+Π
+
+(Pv® , Pv®∗
+), Vfr∗
+ i be the joint distribution6 of messages and output received during the execution of Π in the
+presence of corrupted parties. There exists a PPT Simulator
+Sim(Vfr∗
+,𝐼 ) with black box access to Vfr∗
+and Pv®∗
+, such that
+for all 𝑦® = M (𝑋, 𝑄)
+Viewh
+Π
+
+(Pv® , Pv®∗
+), Vfr∗
+ i ≡ Sim(Vfr∗
+,𝐼 )
+( ®𝑦,𝑟®𝑣, 𝑧, pp)
+Contrary to soundness, for zero knowledge to hold, the simulated transcript should be indistinguishable from the actual
+protocol transcript, based on the inputs used by adversaries,
+and not the ones the clients sent to a set of corrupted provers.
+An interesting point to note is that in verifiable differential privacy, the verifier plays a dual role. An honest verifier ensures that
+the output is faithfully generated and thus plays an active role in
+generating the DP noise without ever seeing it in plaintext. On the
+other hand, a dishonest verifier may try to tamper with the protocol
+to breach privacy. In non-verifiable DP, the analysts (verifier) only
+have access to the DP statistic. They have no agency over how the
+output is generated. Thus the verifier participating in verifiable DP
+has a greater attack surface than a classical adversary in traditional
+non-verifiable DP. We elaborate on this in Section 5, when trying
+to establish separations between statistical DP and computational
+DP. Additionally, just like in standard MPC, in the presence of a
+dishonest majority of corrupted participants, we do not treat early
+5When we say 𝑦 ≠ M (𝑋, 𝑄), we mean 𝑦 is sampled from a distribution with a
+different density function than the one defined by M.
+6As M is a random function, the joint distribution of the view of the adversary and
+their output must be indistinguishable from the simulated transcript (and not just the
+view of the adversary). See [46] for more details.
+exiting by corrupted parties as a breach of security. This is easily
+detected by the honest parties, and the output is ignored. Verifiable
+DP, just like interactive zero knowledge proofs [37] comes in 24
+different flavours based on the capabilities of the corrupted parties:
+(1) Distinguishability: Based on the distinguishability properties of the simulator algorithm, the protocol may be perfect,
+statistical or computationally zero knowledge. The protocol
+described in Section 4 is computationally zero knowledge.
+(2) Verifier specifications: Based on whether the verifier is
+expected to follow the rules of the protocol (semi-honest) or
+may deviate arbitrarily (active), we get honest-verifier zero
+knowledge or unrestricted zero knowledge. All our results
+are zero knowledge.
+(3) Soundness: Based on the power of the corrupted provers,
+the proof may be computationally sound (also known as
+arguments) or statistically sound (secure against unbounded
+provers). The verifiable DP protocol in Section 4 is computationally sound.
+(4) Inputs: Based on whether the verifier has access to the auxiliary input, the protocol could be plaintext zero knowledge
+or auxiliary input zero knowledge. Our protocols allow for
+the verifier to have auxiliary input.
+4 VERIFIABLE BINOMIAL MECHANISM
+This section describes how to compute counting queries verifiably
+with differential privacy in both the single curator and client-server
+MPC models. We consider the trusted curator model to be a special instantiation of the general MPC model where the number of
+provers 𝐾 = 1. In Section 4.1 we describe intuitions for our protocol,
+and in Section 4.2 we explain what is needed for verifiability in the
+MPC setting and tackle the additional challenges of verifying client
+inputs. We describe how prior efforts at verifying clients fall short
+of the security expectations of Definition 3.1. Finally, in Section 4.3,
+we describe a protocol that verifiably computes counting queries
+with DP.
+Set X = Z𝑞 = Y, where Z𝑞 is a prime order finite field of size 𝑞
+over the integers. Let 𝑋 = (𝑥1, . . . , 𝑥𝑛) denote the client inputs and
+𝑄 be the counting query 𝑄(𝑋) =
+Í𝑛
+𝑖=1
+𝑥𝑖
+. Let ⟦𝑥𝑖⟧𝑘 denote the 𝑘’th
+additive secret7
+share of a client input 𝑥𝑖
+. Each client splits their
+input into 𝐾 secret shares and distributes them across the provers.
+We will assume that 𝑛 ≪ 𝑞 and 𝜅 = ⌊log2
+𝑞⌋ can be viewed as the
+security parameter. For 𝐾 ≥ 1 provers and 1 verifier, define the
+oracle functionality MBin in the ideal world as follows:
+(1) MBin receives public privacy parameters 𝜖 and 𝛿. It then
+computes 𝑛𝑏
+(number of coins for binomial noise) based on
+Lemma 2.7.
+(2) Let 
+⟦𝑥1⟧𝑘
+, . . . , ⟦𝑥𝑛⟧𝑘
+
+denote the inputs on the 𝑘’th prover’s
+input tape. Each prover Pv𝑘
+is expected to compute 𝑋𝑘 = Í𝑛
+𝑖=1
+⟦𝑥𝑖⟧𝑘 and sends to MBin as its input 𝑋𝑘
+. A corrupted
+prover might send an arbitrary input.
+(3) MBin samples Δ𝑘 ∼ Binomial(𝑛𝑏
+, 1/2) independently for
+each input 𝑋𝑘
+it receives. It then computes
+𝑦 =
+Í𝐾
+𝑘=1
+(𝑋𝑘 + Δ𝑘
+) (7)
+7Although we describe our protocols with additive secret sharing, any linear secret
+sharing such as Shamir’s secret sharing also applies to all our results.
+CCS ’23, November 26–30, 2023, Copenhagen, Denmark Ari Biswas and Graham Cormode
+(4) MBin sends the tuple (𝑦, Δ𝑘
+) as output to each prover Pv𝑘
+.
+On receiving its output, the Pv𝑘
+sends CONTINUE to MBin.
+Once MBin receives the continue signal from prover Pv𝑘
+it
+moves on to deliver output to Pv𝑘+1
+.
+(5) After all 𝐾 provers have sent CONTINUE, MBin sends 𝑦 as
+output to the verifier Vfr. If a single prover fails to send the
+continue message and thereby exits the protocol early, the
+verifier and the remaining provers do not receive any output.
+When 𝐾 = 1, i.e., the trusted curator setting, the single prover
+receives 𝑛 client inputs in plaintext, so ⟦𝑥𝑖⟧𝑘 = 𝑥𝑖 for all 𝑖 ∈ [𝑛].
+This is equivalent to an adversary corrupting all 𝐾 provers. Thus
+in the MPC setting with 𝐾 ≥ 2 servers, it is safe to assume at least
+one of them will follow the protocol. Our goal is to be able to come
+up with an interactive protocol ΠBin, that allows us to compute
+MBin verifiably as per Definition 3.1. Notice that in the ideal model
+definition above, the oracle adds 𝐾 independent copies of DP noise
+to the output, whereas Lemma 2.7 only calls for a single copy. This is
+because, as we allow up to 𝐾 −1 provers to collude with a corrupted
+verifier, the corrupted provers could simply not add any noise to
+the output. Ben Or et al. ’s completeness results [11] imply that 𝐾
+independent copies of noise are necessary to guarantee differential
+privacy unless the number of corruptions can be restricted to being
+strictly less than 𝐾
+3
+, so each prover must independently generate
+enough noise to guarantee DP. Our protocols defined below are
+secure against computationally bounded provers and verifiers that
+may deviate arbitrarily from protocol specifications and have access
+to auxiliary inputs.
+4.1 An Intuitive But Incomplete Protocol
+Before describing the entire protocol in Section 4.3 and Figure 3,
+we provide the reader with some intuition as to why the protocol
+works for a single curator and verifier. In this section, we make
+the unrealistic assumption that prover and verifier behave faithfully.
+Assume all parties have joint oracle access to OMorra (as described
+in Section 2.2) to jointly sample unbiased bits (𝑏1, . . . , 𝑏𝑛𝑏
+). It is easy
+to see that using (
+Í𝑛𝑏
+𝑖=1
+𝑏𝑖) as DP randomness results in the desired
+Binomial distribution defined in MBin. However, the oracle output
+is known to both the verifier and prover; therefore, it cannot be
+directly used to guarantee differential privacy. As discussed earlier,
+this problem of proving that a prover faithfully sampled random
+bits without disclosing them lies at the heart of any verifiable DP
+protocol. Thus the protocol must combine public coins that satisfy
+verifiability requirements and private coins that ensure secrecy.
+The protocol for verifiable DP counting proceeds in 𝑛𝑏
+identical
+and independent invocations (run in parallel). In copy 𝑖, the prover
+samples𝑣𝑖 ∈ {0, 1}, which it keeps private. Note that a prover could
+sample this bit using any arbitrary bias. As this is the provers’ private coin, the verifier has no control over how the prover generates
+this information. After the prover has sampled their private bit,
+the prover and verifier make one call to OMorra to get an unbiased
+coin denoted by 𝑏𝑖
+. Next, the prover locally computes 𝑣ˆ𝑖 = 𝑏𝑖 ⊕ 𝑣𝑖
+.
+Here ⊕ refers to the boolean XOR operation. It is easy to see that 𝑣ˆ𝑖
+has the same distribution as 𝑏𝑖
+, but its value is known only to the
+parties with access to 𝑣𝑖
+, i.e., the prover. After 𝑛𝑏
+rounds, the prover
+computes 𝑄(𝑋) and 𝑍 =
+Í𝑛𝑏
+𝑖=1
+𝑣ˆ𝑖 and outputs 𝑄(𝑋) + 𝑍 where 𝑍
+is used as DP randomness. By the assumption that the prover and
+(a) (b) Figure 2: Two types of attacks that go undetected in Poplar.
+In (a) regardless of what the honest client sends, a corrupted
+server simply ignores the input and excludes the client from
+the protocol based on auxiliary information. In (b) a dishonest client colludes with the corrupted server by revealing
+secret values, so that an illegal input is included. In both
+cases, the honest server cannot distinguish between an honest run and a corrupted run of the protocol.
+verifier are faithful, 𝑍 is distributed according to the desired distribution stated in Theorem 2.7, and its value is only known to the
+prover. To make this protocol practical, we need to resolve a few
+issues.
+(1) Although the above description requires a bitwise XOR operation to ensure the right distribution is used, we operate with
+arithmetic circuits in the actual protocol. Thus, the provers
+could sample arbitrary values 𝑣
+∗ ∈ Z𝑞 such that 𝑣
+∗ ∉ {0, 1},
+and we need to fix how to express the XOR operation via
+arithmetic circuits.
+(2) Even if we could verify that the prover sampled a private
+bit correctly, we still need to verify that they faithfully performed the local operations discussed above.
+Thus, if we could guarantee that each server performed its computations correctly and sampled a private value from the correct set,
+we would get the desired outcome of verifiable and DP counting
+queries.
+4.2 Extending To Client-Server MPC-DP
+To compute DP histograms verifiably in the client-server MPC-DP
+setting, we use the same computational model used for PRIO [25]
+and Poplar [15]. Prio is deployed at scale by Mozilla 8
+. As discussed
+earlier, in this setting 𝑛 clients secret share their inputs 𝑥𝑖 ∈ 𝐿
+amongst 𝐾 ≥ 2 provers, where 𝐿 ⊆ X defines the language of legal
+inputs to the protocol. For computing 𝑀-bin histograms over 𝑛
+inputs, 𝐿 is the set of all one-hot encoded vectors of size 𝑀. For
+the core problem of a single-dimensional counting query, we have
+𝑀 = 1 and 𝐿 = {0, 1}. Since the inputs on the prover’s tapes reveal
+no information about a client’s input, for the protocol to be useful
+the provers must first verify in zero knowledge that 𝑥𝑖 ∈ 𝐿 before
+using such inputs to compute aggregate statistics. This additional
+step of verifying a client is not required in the trusted curator
+model, as the prover decides what inputs should be included in the
+computation and can see them in plaintext.
+8https://blog.mozilla.org/security/2019/06/06/next-steps-in-privacy-preservingtelemetry-with-prio/
+Interactive Proofs For Differentially Private Counting CCS ’23, November 26–30, 2023, Copenhagen, Denmark
+Verifying Clients in MPC-DP. Poplar and PRIO use efficient
+sketching techniques from [17] to validate a client’s input in zero
+knowledge without relying on any public key cryptography. Thus,
+as long as at least one out of 𝐾 provers does not reveal the inputs it
+received, even an unbounded adversary corrupting the remaining
+provers cannot ascertain any information about an honest client’s
+input. While such a system protects an honest client’s privacy from
+an unbounded adversary, it is not verifiable as per Definition 3.1.
+Specifically, for the techniques used in PRIO and Poplar, a single
+corrupted prover could tamper with its inputs and exclude an honest
+client from the protocol by forcing them to fail the verification
+test. Alternatively, a corrupt client could collude with a prover
+to include arbitrary inputs, jeopardising the correctness of the
+output. Figure 29
+summarises these attacks on Poplar and PRIO10
+.
+By our definitions of verifiability, the protocol’s output must be a
+function of the inputs provided by honest clients only. Thus the
+protocol described in Section 4.3 provides the following additional
+guarantees:
+(1) Guaranteed Inclusion Of Honest Clients: If a client submits shares of an input 𝑥 ∈ 𝐿, then the final output of the
+protocol is guaranteed to use this input untampered. Thus
+an honest client is assured that, as long as a single prover
+follows the protocol specifications, no one learns any information about their private input and their input is correctly
+used to compute the final output.
+(2) Guaranteed Exclusion Of Corrupt Clients: A corrupted
+client, even one that has control over any proper subset
+of the 𝐾 provers, cannot include an invalid input to the
+protocol. Thus if 𝑥 ∉ 𝐿, 𝑥 is discarded by our protocol with
+overwhelming probability.
+It is important to note that as we operate under stricter notions
+of privacy and correctness, our results require the use of publickey cryptography and security holds only against computationally
+bounded adversaries. Furthermore, we show in Section 5 that it is
+impossible to satisfy verifiable DP and provide information theoretic
+guarantees.
+4.3 Main Protocol Description
+The protocol ΠBin described in Figure 3 provides a compact standalone description of the interaction between 𝐾 provers and the
+verifier for computing MBin. We assume that both the provers and
+the verifier have access to oracles Omorra and OOR as defined in
+Section 2.2. In the real world, OMorra is replaced with ΠMorra (see
+Algorithm 1) and OOR is replaced by Cramer et al. ’s Σ-OR proof [26]
+(see Appendix B for an example implementation) which securely
+compute the oracle functionalities in the presence of adversaries
+that may deviate from protocol specifications. Thus, we define our
+protocol in the hybrid world, and by the sequential composition theorem11 [37], the security properties of the protocol are preserved.
+Next, we describe the protocol in detail with line references to
+Figure 3:
+9Content from J.J. at the English-language Wikipedia, licensed under CC BY-SA 3.0.
+10Concretely, referring to notation from [15, Appendix C], in scenario (b), the dishonest
+client reveals the values 𝜅 and [𝑣]0 to the server. This allows the server to set 𝑧1 =
+−𝑧0, 𝑧∗
+1
+= −𝑧
+∗
+0
+and 𝑧
+∗∗
+1
+= −𝑧
+∗∗
+0
+, thereby admitting an illegal input into the protocol.
+11Though we use sequential composition, both protocols Πmorra and Πor can be
+composed in parallel.
+Line 1: In the first step, the prover(s) and verifier agree upon the
+public parameters for the protocol. The public parameters include a description of Cpp = G𝑞,Mpp = X = Y = Z𝑞, Rpp =
+Z𝑞 and a description of Mbin as defined in equation (7). The
+group G𝑞 satisfies the requirements of the homomorphic
+commitment scheme defined in Section 2.3 and we assume
+that the discrete log problem is hard to solve in G𝑞.
+Line 2: For each client 𝑖 ∈ [𝑛], let ⟦𝑥𝑖⟧𝑘 denote the 𝑘’th share of
+their input 𝑥𝑖 ∈ 𝐿. Define 𝑐𝑖,𝑘 = Com 
+⟦𝑥𝑖⟧𝑘
+, 𝑟𝑖,𝑘 
+as the
+commitment to the 𝑘’th share of 𝑥𝑖
+. The client sends to
+each prover Pv𝑘
+the tuple (⟦𝑥𝑖⟧𝑘
+, 𝑟𝑖,𝑘 ) and broadcasts the
+commitments to each of the shares 
+𝑐𝑖,1, . . . , 𝑐𝑖,𝐾 
+to a public
+bulletin board that is observable to all parties.
+Line 3-4: Similar to PRIO and Poplar, we use 𝐿 = {0, 1}, and thus
+verifier and the client use the oracle OOR to check if the
+client’s input is indeed a commitment to a bit. For input
+𝑥𝑖
+, the verifier (and provers) sends to OOR the derived commitment 𝑐𝑖 =
+Î𝐾
+𝑘=1
+𝑐𝑖,𝑘 and the client sends the openings
+
+𝑥𝑖
+,
+Í𝐾
+𝑘=1
+𝑟𝑖,𝑘 
+. The oracle responds with OOR (𝑐𝑖) = 1 if
+𝑥𝑖 ∈ {0, 1} and 𝑐𝑖
+is a commitment to 𝑥𝑖
+. In the real world,
+we replace OOR with a Σ-OR protocol 12. This step resolves
+the issues presented in Figure 2, as an honest client cannot
+be excluded nor can a corrupt client input be included. From
+here on, the protocol only uses inputs from validated clients.
+Line 5: Pv𝑘
+samples (𝑣1,𝑘, . . . , 𝑣𝑛𝑏,𝑘 ) where 𝑣𝑗,𝑘 ∈ {0, 1} (private random bit) and sends to the verifier commitments to 𝑣𝑗,𝑘 for
+𝑗 ∈ [𝑛𝑏
+]. Let 𝑐
+′
+𝑗,𝑘 = Com(𝑣𝑗,𝑘, 𝑠𝑗,𝑘 ) denote the commitment
+to 𝑣𝑗,𝑘 with randomness 𝑠𝑗,𝑘 . To enforce consistency in notation and improve readability, we always use 𝑐 to denote
+commitments to client inputs and 𝑐
+′
+to denote commitments
+to the prover’s private inputs. Similarly, we will always use
+𝑟 and 𝑠 to denote the randomness used for client input and
+prover bit commitments, respectively.
+Line 6-7: The verifier uses OOR to check if the messages sent by the
+prover were indeed commitments to 0 or 1 (similar to verifying client inputs). This step is essential for the Boolean
+to arithmetic conversion, as the linearisation of the XOR operation is only valid for values 𝑣 ∈ {0, 1} (see completeness
+property of Theorem 4.1).
+Line 8-9: If for any 𝑖 ∈ 𝑛𝑏
+, OOR = 0, the verifier aborts the protocol
+and broadcasts that Pv𝑘
+cheated. Otherwise, once all commitments are verified, the prover and verifier jointly invoke
+Omorra to get 𝑛𝑏 public unbiased bits (𝑏1,𝑘, . . . , 𝑏𝑛𝑏,𝑘 ).
+Line 10: For all 𝑖 ∈ [𝑛𝑏
+], based on the value of 𝑏𝑗,𝑘 , the prover sets
+𝑣ˆ𝑗,𝑘 and 𝑠ˆ𝑗,𝑘 as follows
+𝑣ˆ𝑗,𝑘 =
+(
+1 − 𝑣𝑗,𝑘 if 𝑏𝑗,𝑘 = 1
+𝑣𝑗,𝑘 otherwise.
+𝑠ˆ𝑗,𝑘 =
+(
+1 − 𝑠𝑗,𝑘 if 𝑏𝑗,𝑘 = 1
+𝑠𝑗,𝑘 otherwise.
+12In the interactive setting, the verifier, the provers, and the client jointly sample a
+public challenge by playing Morra. As long a single party is honest, the challenge is
+guaranteed to be selected uniformly at random. Alternatively, in the ROM model, the
+client sends to a public bulletin board a non-interactive Σ-proof using the Fiat-Shamir
+transform.
+CCS ’23, November 26–30, 2023, Copenhagen, Denmark Ari Biswas and Graham Cormode
+Verifier(Vfr) Prover(Pv𝑘 )
+1 : pp ← Setup(1
+𝜅
+) Generate public parameters pp ← Setup(1
+𝜅
+)
+2 :
+(
+n
+𝑐𝑖,𝑘 o
+𝑘∈ [𝐾 ]
+)
+𝑖 ∈ [𝑛]
+Client inputs n
+⟦𝑥𝑖⟧𝑘, 𝑟𝑖,𝑘 o
+𝑖 ∈ [𝑛]
+,
+(
+n
+𝑐𝑖,𝑘 o
+𝑘∈ [𝐾 ]
+)
+𝑖 ∈ [𝑛]
+3 : ∀𝑖 ∈ [𝑛] Send 𝑐𝑖 =
+Ö𝐾
+𝑘=1
+𝑐𝑖,𝑘 OOR ∀𝑖 ∈ [𝑛] Send 𝑐𝑖 =
+Ö𝐾
+𝑘=1
+𝑐𝑖,𝑘
+4 : For any 𝑖 ∈ [𝑛] if OOR (𝑐𝑖 ) ≠ 1 Exclude (⟦𝑥𝑖⟧𝑘, 𝑟𝑖,𝑘 ) from the protocol
+5 : (𝑐
+′
+1,𝑘, . . . , 𝑐′
+𝑛𝑏,𝑘 )
+𝑐
+′
+𝑗,𝑘 = Com 
+𝑣𝑗,𝑘, 𝑠𝑣𝑗,𝑘 
+∀𝑗 ∈ [𝑛𝑏 ] Samples and commits 𝑣𝑗,𝑘 ∈ {0, 1}
+6 : ∀𝑗 ∈ [𝑛𝑏 ] Send 𝑐
+′
+𝑗,𝑘 OOR ∀𝑗 ∈ [𝑛𝑏 ] Send openings(𝑣𝑗,𝑘, 𝑠𝑗,𝑘 )
+7 : ∀𝑗 ∈ [𝑛𝑏 ] Check OOR (𝑐
+′
+𝑗,𝑘 ) = 1
+8 : ∀𝑗 ∈ [𝑛𝑏 ] Send empty string 𝜆𝑗 OMorra ∀𝑗 ∈ [𝑛𝑏 ] Send empty string 𝜆𝑗
+9 : Receive (𝑏1,𝑘, . . . , 𝑏𝑛𝑏,𝑘 ) ∀𝑗 ∈ [𝑛𝑏 ] 𝑏𝑗,𝑘 = OMorra (𝜆𝑗 ) Receive (𝑏1,𝑘, . . . , 𝑏𝑛𝑏,𝑘 )
+10 : ∀𝑗 ∈ [𝑛𝑏 ] Update 𝑣𝑗,𝑘, 𝑠𝑗,𝑘 to get 𝑣ˆ𝑗,𝑘, 𝑠ˆ𝑗,𝑘 based on 𝑏𝑗,𝑘
+11 :
+(𝑦𝑘, 𝑧𝑘 )
+𝑦𝑘 =
+∑︁𝑛
+𝑖=1
+⟦𝑥𝑖⟧𝑘 +
+∑︁𝑛𝑏
+𝑗=1
+𝑣ˆ𝑗,𝑘 and 𝑧𝑘 =
+∑︁𝑛
+𝑖=1
+𝑟𝑖,𝑘 +
+∑︁𝑛𝑏
+𝑗=1
+𝑠ˆ𝑗,𝑘 
+12 : Compute 𝑐ˆ
+′
+𝑗,𝑘 using 𝑏𝑗,𝑘 for all 𝑗 ∈ [𝑏𝑛𝑏
+]
+13 : Check that Ö𝑛
+𝑖=1
+𝑐𝑖,𝑘 ×
+Ö𝑛𝑏
+𝑗=1
+𝑐ˆ
+′
+𝑗,𝑘 
+= Com(𝑦𝑘, 𝑧𝑘 )
+Figure 3: The figure above describes the interaction between a single prover and verifier in ΠBin. In the single trusted curator
+model 𝐾 = 1 we have 𝑥𝑖 = ⟦𝑥𝑖⟧𝑘 where the prover can see client inputs in plaintext. In the MPC setting, each prover Pv𝑘
+follows
+the exact same protocol on their respective inputs specified in Line 2. Thus at the end of the protocol, each prover Pv𝑘 outputs
+the tuple 𝑦𝑘
+, 𝑧𝑘
+. A verifier aggregates the output from each prover to publish verifiable DP statistics.
+As long as 𝑣𝑗,𝑘 ∈ {0, 1}, the above set of equations is equivalent to setting 𝑣ˆ𝑗,𝑘 = 𝑣𝑗,𝑘 ⊕𝑏𝑗,𝑘 . An important feature of this
+step is that, conditioned on 𝑏𝑗,𝑘 , the operations described
+above are linear. Line 11 describes why this is critical for
+correctness to hold.
+Line 11: The prover sends (𝑦𝑘
+, 𝑧𝑘
+) to the verifier:
+𝑦𝑘 =
+∑︁𝑛
+𝑖=1
+⟦𝑥𝑖⟧𝑘 +
+∑︁𝑛𝑏
+𝑗=1
+𝑣ˆ𝑗,𝑘 
+(8)
+𝑧𝑘 =
+∑︁𝑛
+𝑖=1
+𝑟𝑖,𝑘 +
+∑︁𝑛𝑏
+𝑗=1
+𝑠ˆ𝑗,𝑘 
+(9)
+where (𝑦𝑘
+, 𝑧𝑘
+) is the output for prover Pv𝑘
+.
+Line 12: Using the common public randomness {𝑏𝑗,𝑘 }𝑗 ∈ [𝑛𝑏 ] generated by Omorra, the verifier updates their view of received
+commitments as follows:
+𝑐ˆ
+′
+𝑗,𝑘 =
+(
+Com(1, 1) × 𝑐
+′−1
+𝑗,𝑘 if 𝑏𝑗,𝑘 = 1
+𝑐
+′
+𝑗,𝑘 otherwise.
+Note that Pv𝑘 never opens 𝑐ˆ
+′
+𝑗,𝑘 , and thus Vfr never sees
+𝑣ˆ𝑗,𝑘 in plaintext. By the hiding property of commitments,
+an efficient verifier learns nothing about the prover’s private values from these messages. However, as the update
+conditioned on 𝑏𝑗,𝑘 is linear and 𝑏𝑗,𝑘 is public, Vfr can still
+compute a commitment to 1 − 𝑣𝑗,𝑘 without ever knowing
+𝑣𝑗,𝑘 . As a direct consequence, as discussed in the soundness
+claim, the prover cannot deviate from its prescribed linear
+operation, as the verifier can check it. As we will show later,
+this step guarantees correctness, soundness and security.
+Line 13: Finally, the verifier checks
+Ö𝑛
+𝑖=1
+𝑐𝑖,𝑘 ×
+Ö𝑛𝑏
+𝑗=1
+𝑐ˆ
+′
+𝑗,𝑘 = Com(𝑦𝑘
+, 𝑧𝑘
+) (10)
+From these outputs, we can derive the desired result: we treat
+the 𝑦𝑘
+’s as shares, and calculate 𝑦 =
+Í𝐾
+𝑘=1
+𝑦𝑘 as the noisy sum. We
+next show that this protocol achieves our desired properties.
+Theorem 4.1. Let 𝑋 = (𝑥1, . . . , 𝑥𝑛) be the client input. Let MBin
+and O = (Omorra, OOR) be as defined above. ΠBin is a verifiably
+differentially private argument with perfect completeness, negligible
+soundness and is computational zero knowledge.
+Proof.
+Completeness: By the definition of Omorra, (𝑏1,𝑘, . . . , 𝑏𝑛𝑏,𝑘 ) are
+all unbiased bits. As per ΠBin, when 𝑏𝑗,𝑘 = 1, 𝑣ˆ𝑗,𝑘 = 1 − 𝑣𝑗,𝑘 and
+when 𝑏𝑗,𝑘 = 0, 𝑣ˆ𝑗,𝑘 = 𝑣𝑗,𝑘 . We know that an honest prover is guaranteed to have sampled a private value 𝑣𝑗,𝑘 ∈ {0, 1} for all 𝑗 ∈ [𝑛𝑏
+].
+Thus the case-wise arithmetic operation described above is equivalent to setting 𝑣ˆ𝑗,𝑘 = 𝑣𝑗,𝑘 ⊕ 𝑏𝑗,𝑘 . This implies that for each server
+𝑣ˆ𝑗,𝑘
+𝑅←− {0, 1} and Í𝑛𝑏
+𝑗=1
+𝑣ˆ𝑗,𝑘 ∼ Binomial(𝑛𝑏
+, 1/2). The output of
+each honest prover is thus 𝑦𝑘 = Binomial(𝑛𝑏
+, 1/2) +Í𝑛
+𝑖=1
+⟦𝑥𝑖⟧𝑘
+. By
+Interactive Proofs For Differentially Private Counting CCS ’23, November 26–30, 2023, Copenhagen, Denmark
+linearity of secret-sharing, Í
+𝑘 ∈ [𝐾] 𝑦𝑘 = MBin (𝑋, 𝑄) where MBin
+is defined in equation (7).
+Soundess. Beyond exiting the protocol early (which is trivially
+detected), an adversary A controlling a collection of dishonest
+provers could force a prover to cheat by doing at least one of the
+following:
+(1) (Cheat at Line 4): For any 𝑗 ∈ [𝑛𝑏
+],𝑐
+′
+𝑗,𝑘 is not a commitment
+to a bit. As the verifier has access to oracle OOR, it would
+detect this immediately. Thus we can be guaranteed that𝑐
+′
+𝑗,𝑘
+are commitments to 1 or 0.
+(2) (Cheat at Line 7): The prover could sample improper public
+randomness. However, this is impossible as the verifier and
+prover jointly use OMorra to generate randomness.
+(3) (Cheat at Line 10): Output messages (𝑦
+′
+𝑘
+≠ 𝑦𝑘
+, 𝑧
+′
+𝑘
+≠ 𝑧𝑘
+).
+If the verifier check from (Line 12) fails then the verifier
+knows Pv∗
+𝑘
+cheated. If Com(𝑦𝑘
+, 𝑧𝑘
+) =
+Î𝑛
+𝑖=1
+𝑐𝑖,𝑘 ×
+Î𝑛𝑏
+𝑗=1
+𝑐ˆ
+′
+𝑗,𝑘 =
+Com(𝑦
+′
+𝑘
+, 𝑧′
+𝑘
+), then A has broken the binding property of the
+commitment scheme. As A has negligible success in winning
+the discrete log game, it has a negligible chance at breaking
+the commitment scheme.
+These are the only places where the Pv∗
+sends a message to the
+Vfr and thus we have our result.
+Zero Knowledge. To prove zero knowledge we need to explicitly
+define the commitment scheme we are using. We use Pedersen
+Commitments which are defined as follows
+Com(𝑥, 𝑟) = 𝑔
+𝑥
+ℎ
+𝑟
+(11)
+where Rpp = Mpp = Z𝑞 and Cpp = G𝑞 is an abelian group where
+the discrete log problem is hard. To enhance readability, we will
+prove security for 𝐾 = 2 provers and one verifier, but the result
+trivially generalises to 𝐾 ≥ 2 provers. To avoid confusion between
+the MPC and single curator setting, we defer the simpler security
+proof for single curators to Appendix C. Without loss of generality,
+assume that the verifier Vfr∗
+and Pv1 have been corrupted by a PPT
+adversary A and that Pv2 is honest. Sim receives on its input tape
+the inputs for Pv1 and Vfr∗
+. The ideal oracle functionality MBin
+is defined as before. Let Sim denote shorthand for SimVfr∗
+,Pv1
+. We
+construct the simulator as follows:
+(1) Sim receives the public messages (
+n
+𝑐𝑖,𝑘 o
+𝑘 ∈ [𝐾]
+)
+𝑖∈ [𝑛]
+and
+sets 𝑐𝑖 =
+Î𝐾
+𝑘=1
+𝑐𝑖,𝑘 .
+(2) Sim internally invokes Pv1 to receive inputs 𝑋1. If Pv1 was
+honest then 𝑋1 =
+Í𝑛
+𝑖=1
+⟦𝑥𝑖⟧1. Of course, we have no control
+over A, and 𝑋1 could be any arbitrary value. The definition
+of security requires that we prove security using the actual
+inputs used by the real-world adversary A and not the ones
+it was handed to at the start of the protocol.
+(3) Sim invokes Mbin with input 𝑋1 and receives (𝑦, Δ1) as
+defined in equation (7). Note Sim never has access to the
+honest party’s input 𝑋2 nor the randomness Δ2 used by
+Pv2 in the real protocol. It must simulate the messages and
+output of the real protocol from just its input and the output
+it receives from the ideal model.
+(4) Sim sets 𝑦1 = 𝑋1 + Δ1 and computes 𝑦2 = 𝑦 − 𝑦1, which by
+the definition of MBin, is equal to (𝑋2 + Δ2).
+(5) Sim samples 𝑧2
+𝑅←− Rpp and sets 𝑐2 = Com(𝑦2, 𝑧2).
+(6) Sim samples𝑐
+′
+2,2
+, . . . , 𝑐′
+𝑛𝑏,2
+such that𝑐
+′
+𝑗,2
+= Com(1, 𝑠𝑗,2) where
+𝑠𝑗,2
+𝑅←− Rpp. It sets𝑐
+′
+1,2
+= 𝑔
+1𝑎2 where 𝑎2 = 𝑐2×
+ Î𝑛𝑏
+𝑗=2
+𝑐ˆ
+′
+𝑗,2
+−1
+×
+ Î𝑛
+𝑖=1
+𝑐𝑖,2
+−1
+× 𝑔
+−1
+. Notice that Sim is actually unable to
+open 𝑐
+′
+1,2
+but is never required to do so, as opening a commitment to a private value violates DP. The only information A
+can check is if𝑐
+′
+1,2
+is a commitment to a bit, which it is. Thus
+the simulator artificially constructs a set of commitments
+that align with the real-world protocol, without having the
+slightest idea what the randomness used by Pv2 actually
+was. It is able to do so due to the hiding property of the
+commitment scheme.
+(7) Sim sends over {𝑐𝑗,2}𝑗 ∈ [𝑛𝑏 ]
+to A pretending to be the honest
+prover (Line 4 of Figure 3).
+(8) Sim pretends to be the prover and jointly invokes OMorra
+with A to sample 𝑛𝑏 unbiased public bits (𝑏1,2, . . . , 𝑏𝑛𝑏,2).
+(9) Sim sends 𝑦2 and 𝑧2 to A and outputs whatever A outputs.
+□
+4.4 Public Verifiability and Randomness
+Notice that the verifier does not contribute a private input to the
+protocol, and its messages contain no private information either.
+Furthermore, any party (the clients or the prover) may view the
+messages sent and received by the verifier. The verifier’s role is primarily to generate unbiased public randomness (independent of the
+prover’s messages), which is used to ensure soundness. It samples
+a challenge for the Σ-OR proof to verify that the prover’s private
+values are well formed. Additionally, it participates in Morra, to
+generate unbiased public coins to enforce the prover’s DP noise is
+sampled from the correct distribution. In the computational complexity literature, such a verifier is called a public coin verifier 13
+.
+If there was another way to sample unbiased and reliable randomness without the verifier, anyone accessing the message transcript
+could verify if soundness holds. Consider the Random Oracle Model
+(ROM), where the verifier’s randomness generation (Morra) is replaced by applying a random oracle on the prover and client messages. Further, consider that all messages from the prover(s) are
+sent to a public bulletin board along with the client’s input commitments and timestamps, with the slight modification that the prover
+sends commitments and non-interactive proofs of validity before
+the clients send messages to the board. The order matters as this
+prevents the prover from adaptively selecting private values based
+on the clients’ messages, thereby biasing the output of applying a
+ROM on the board’s contents. This way, the prover’s messages are
+guaranteed to be independent of the honest client’s messages. Now,
+any party (including the clients or even one that did not participate
+in the protocol) can verify that the randomness is correctly generated (using the oracle on the bulletin board messages) and then
+perform the checks assigned to the verifier to ensure soundness
+holds. There is no longer a need for parties to play Morra to generate
+reliable randomness. Thus, we do not need an explicit verifier. Such
+13https://en.wikipedia.org/wiki/Interactive_proof_system
+CCS ’23, November 26–30, 2023, Copenhagen, Denmark Ari Biswas and Graham Cormode
+a protocol, where the correctness of the output can be verified by a
+non-participating entity, even when all participants responsible for
+computing the output are corrupted, is said to be publicly or universally verifiable (Definition 1 of [6]). Public verifiability is a critical
+property for protocols such as E-voting [40], where one cannot
+trust a single verifier or a small group to help compute the output
+reliably. Of course, the ROM model is a theoretical construct. In the
+real world, we do not have a provable instantiation of a random
+oracle. Thus the protocol described above is not verifiable unless
+we assume at least one party (the verifier or one of the provers) is
+semi-honest. This semi-honest participant ensures that the public
+randomness is sampled reliably. So the question beckons, can we
+upgrade interactive proofs of differential privacy from verifiability to public verifiability in the plain model? Next we show that
+public verifiability (as defined in Definition 1 of [6]) is impossible
+for interactive proofs for differential privacy if all participants are
+corrupted. Thus, the trust assumptions in our protocol above are
+the best we can hope for.
+Unlike deterministic E-voting protocols, the outputs of a differentially private mechanism are, by definition, random. Furthermore,
+the output is a function of the client’s inputs and the prover’s private randomness. In end-to-end auditable voting [2, 40] or publicly
+verifiable MPC [6], the output of the protocol is a deterministic
+function of the client inputs only. Correctness is measured with
+respect to the output of an ideal functionality computing the desired function over these inputs. For DP mechanisms, the prover
+is responsible for providing a private but random input, which is
+used along with client inputs to compute a DP statistic. Thus in
+this setting, the prover has more agency to affect the output than
+the computing parties in an universally auditable MPC. The core
+problem for verifiable differential privacy lies in verifying that the
+final DP randomness comes from the correct distribution (an unbiased binomial distribution in our case) without learning anything
+about the prover’s private random sample. Thus to verify a claim
+about a DP statistic, at the very least, we need a source for public
+and verifiable randomness. This is to say that the DP randomness
+must be computed as a joint function of the prover’s private randomness and reliable public randomness to enforce both secrecy
+and verifiability. Without reliable public randomness, we cannot
+make a meaningful claim about the final output distribution. Thus
+a source of verifiable public randomness is necessary for verifiable
+DP. Such sources of public randomness are often called random
+beacons in the blockchain literature 14. In the plain model (without
+a common random string (CRS) or a random oracle), we either need
+a trusted party to generate public randomness or require that the
+public randomness be computed using MPC among the participants.
+In the protocol above, we generate public randomness using Morra,
+one possible MPC instantiation of a random beacon (based on the
+classic commit and reveal approach). MPCs based on Verifiable
+Delay Functions (VDFs) can also generate public randomness with
+guaranteed output delivery [14]. Both Morra and VDFs require that
+at least one participant be semi-honest. In general, if all participants
+of the randomness-generating MPC are corrupted, then we cannot
+guarantee reliable public randomness. Thus in the plain model, we
+14https://a16zcrypto.com/content/article/public-randomness-and-randomnessbeacons/.
+cannot guarantee public verifiability if all parties are corrupted,
+giving us the following corollary.
+Corollary 4.2. Provided that there is at least one honest participant or a reliable source of public randomness (random beacon), the
+transcript of ΠBin can be efficiently verified by any party (even one
+that did not participate in the protocol). Absent this, it is impossible
+to provide universal verifiability in the plain model.
+5 SEPARATION UNDER VERIFIABLE DP
+We show that information theoretic verifiable DP is impossible in
+the trusted curator model. To prove our result stated in Theorem 5.2,
+we rely on the impossibility of secure coin flipping by [39].
+Theorem 5.1 (Impossibility Of Tossing A Fair Coin). [39] Let
+(Pv, Vfr) be a coin tossing protocol and let 𝐵𝜆 = E[out(Pv, Vfr) (1
+𝜅
+)]
+be the bias of the output of such a protocol. Assuming that oneway-functions do not exist, then for any 𝑔 ∈ poly(𝜅), there exists
+a pair of efficient cheating strategies Pv∗ and Vfr∗
+such that the
+following holds: for infinitely many 𝜅’s, for each 𝑗 ∈ {0, 1} either
+Pr[out(Pv∗
+, Vfr) (1
+𝜅
+) = 𝑗] or Pr[out(Pv, Vfr∗
+) (1
+𝜅
+) = 𝑗] is greater
+than √︃
+𝐵
+𝑗
+𝜅 −
+1
+𝑔(𝜅)
+, where 𝐵
+1
+𝜅 = 𝐵𝜆 and 𝐵
+0
+𝜅 = 1 − 𝐵𝜆
+. In particular for
+𝐵𝜆 =
+1
+2
+, the corrupted party can bias the outcome by almost 1√
+2
+−
+1
+2
+.
+The theorem above states that it is impossible for two unbounded
+parties to jointly sample an unbiased public coin. The result is
+stronger than the impossibility result by Cleve [24], which states
+that it is impossible to jointly flip an unbiased coin if we allow
+parties to exit early. The theorem above states that it is impossible
+even if we guarantee no party exists the protocol early.
+Theorem 5.2 (Information Theoretic Verifiable DP is impossible). Any constant round interactive protocols Π for an DPmechanism MBin that satisfies Verifiable-DP (Definition 3.1) cannot
+have unconditional soundness and statistical zero knowledge.
+Proof. Verifiable DP requires that a verifier be able to guarantee
+that the randomness generated by a prover remains unbiased, without the verifier ever seeing the randomness. Theorem 5.1, states that
+it is impossible for two unbounded parties to even jointly sample a
+public unbiased coin without assuming one way functions. Thus
+commitment schemes are both necessary and sufficient to jointly
+sample an unbiased public coin.
+The task of jointly sampling unbiased private randomness is
+harder. If two parties could sample unbiased private randomness,
+then they could just use the same protocol to sample unbiased public randomness, by revealing the randomness. Thus, commitment
+schemes are a necessary condition for verifiable DP. Commitments
+cannot be both statistically binding and hiding, thus unbounded
+soundness and statistical zero knowledge is impossible. □
+Connection With Open Problem.
+Definition 5.3 (𝛼-useful mechanism). Fix 𝛼 ∈ [0, 1]. Let 𝑢 : X𝑛 ×
+Y →∈ {0, 1} be an efficiently computable deterministic function. A
+mechanism M is 𝛼-useful for a utility function 𝑢 if for some 𝑄 ∈ Q
+and for all 𝑋 ∈ X𝑛
+Pr
+𝑦←M (𝑋,𝑄)
+[𝑢(𝑋, 𝑦) = 1] ≥ 𝛼 (12)
+Interactive Proofs For Differentially Private Counting CCS ’23, November 26–30, 2023, Copenhagen, Denmark
+In his survey on the complexity of DP, Vadhan [56] asks the
+following question. Given 𝑋 ∈ X𝑛
+and a differentially private
+mechanism M : X𝑛 × Q → Y, is there an efficient utility function 𝑢 that is 𝛼-useful when M is IND-CDP but not when M is
+information-theoretically DP. Groce et al. [38] show that if the
+range of 𝑢 is in R
+𝑛
+and the utility is measured in terms of the
+L𝑝 -norm, then statistical-DP and computational DP are equivalent.
+Thus for the separation to hold, the range of 𝑢 must have a more
+complex structure, such as a graph, a circuit or a proof. Bun et al.
+corroborate this result by describing a utility function such that 𝑢
+is infeasible (not impossible) when M is statistical DP and efficient
+when M is computational DP [19]. Similar to our definition of
+verifiability, their utility function 𝑢 is cryptographic and unnatural
+from a data analysis point of view. Specifically, given 𝑦 = M (𝑋, 𝑄),
+Bun et al. define the utility as the answer to the question of whether
+𝑦 is a valid zap proof [33] of the statement “there exists a row in 𝑋
+that is a valid message signature pair”. Meanwhile, we define our
+utility function as an interactive proof that checks whether the real
+protocol output 𝑦 is indistinguishable from the output of an ideal
+run of M. In Theorem 5.2, we show that verifiable DP is impossible
+in the presence of computationally unbounded adversaries. This
+provides a candidate for a separation between statistical DP and
+computational DP.
+However, there are some key differences between our formulation of utility and how it was originally posed. For example, in
+Bun et al. , the utility function 𝑢 is a deterministic non-interactive
+function that receives the output 𝑦 and a dataset 𝑋 of messagesignature pairs. The task of evaluating utility is separate from the
+task of computing DP statistics. In verifiable DP, both the DP statistic and utility are computed simultaneously via a constant round
+interactive protocol. Furthermore, the number of rounds of the
+utility function is a function of the privacy parameter 𝜖. Another
+point of difference is that, in verifiable DP, the verifier performs the
+dual role of evaluating the utility of the mechanism and generating
+randomness that prevents a curator from cheating (although it does
+not ever see this randomness). In Bun et al. , the verifier’s task is
+just to verify the proof. They are not involved in generating the
+DP noise. Although we show that information theoretic verifiable
+DP is impossible, our definitions allow the adversary more agency.
+Thus the two settings are not directly comparable. We defer finding
+stronger connections between verifiable DP and finding a utility
+function that separates DP as per [56] to future work.
+6 PERFORMANCE
+This section quantifies the computational cost of ΠBin, our protocol
+for computing verifiable DP counting queries. All results reported
+below were run on a single core of an Apple M1 Mac and the
+code to reproduce these results can be found at https://github.com/
+abiswas3/Verifiable-Differential-Privacy.
+In all our experiments, we instantiate the homomorphic commitment scheme using Pedersen Commitments (PC) [51] over the
+Ristretto curve15. A single commitment operation requires two
+multiplications and one addition and takes 156 𝜇𝑠. We instantiate
+OMorra using ΠMorra described in Section 2.2. We instantiate OOR
+15https://doc.dalek.rs/curve25519_dalek/ristretto/struct.RistrettoPoint.html
+Table 1: The table below benchmarks the latency of each stage
+of ΠBin for computing single dimension counting queries
+with parameters 𝑛 = 106
+, 𝜖 = 0.095, 𝛿 = 10−10. For a fixed value
+of 𝛿, an 𝜖 = 0.095 corresponds to 𝑛𝑏 = 262144 private coins for
+the binomial mechanism.
+C-Verifiy Bit-commit P-Verify Morra Agg Check
+169 sec 53 sec 45 sec 33 sec 79 ms 189 ms
+with the non-interactive Fiat-Shamir transform of the Σ-OR protocol described in Appendix B using SHA-316 as the random oracle.
+In the experiments discussed below, each client 𝑖 ∈ [𝑛] sends commitments to their inputs and a non-interactive Σ-OR proof of their
+validity. Additionally, each client sends the prover(s) openings to
+its commitments as described in Line 2 of Figure 3.
+Table 1 describes the latency of different stages ΠBin with parameters 𝑛 = 106
+, 𝜖 = 0.095, 𝛿 = 10−10, in relation to Figure 3. Note
+that for the fixed value of 𝛿 = 10−10
+, 𝜖 = 0.095 corresponds to
+𝑛𝑏 = 262144.
+(1) The first column C-Verify describes the time it takes for the
+verifier to validate 𝑛 = 106
+client Σ-OR proofs sequentially
+(Lines 3-4).
+(2) The second column Bit-commit describes the time it takes
+a single prover to sample 𝑛𝑏 private bits and create 𝑛𝑏 noninteractive Σ-OR proofs of their validity (Lines 5-6).
+(3) The third column P-Verify, describes how long it takes the
+verifier to validate these proofs (Line 7).
+(4) The fourth column describes the time it takes to play Morra,
+i.e., commit, open and aggregate 𝑛𝑏 values in Z𝑞 (Lines 9-10).
+(5) The fifth column describes the time it takes to aggregate
+𝑛𝑏 + 𝑛 vales in Z𝑞 (Line 11).
+(6) Finally the last column describes the time it takes to check
+the provers outputs are correct (Lines 12-13).
+We remark that numbers reported in the table result from running computations sequentially on a single core. As each round of
+ΠBin is independent of the other rounds, these computations could
+also be run in parallel. As our main bottleneck is working with
+the Σ-proof creation and verification, Figure 4 describes how proof
+creation and verification latency scales with the privacy parameter 𝜖 (or number of private coins 𝑛𝑏
+). Note that for high privacy
+settings (small values of 𝜖), the prover(s) need to generate more
+private coins to ensure indistinguishability. Specifically, the number
+of coins (𝑛𝑏
+) is proportional to 1/𝜖
+2
+(Lemma 2.7), and the time cost
+is then linear in 𝑛𝑏
+.
+Time cost for client verification (MPC case). Clients submit
+secret shares of their inputs in the MPC setting. Thus the servers
+must verify that the client inputs are valid. For 𝑀-dimensional DPhistogram estimation, the client inputs are restricted to one-hot
+encoded vectors of size 𝑀. As discussed in Section 4.2, the sketching
+techniques used in PRIO and Poplar allow servers to verify clients
+with information-theoretic security. Still, they are vulnerable to
+attacks by malicious servers. Our use of Σ-OR-protocols can defend
+against such attacks, but it comes at a higher computational cost due
+to its reliance on commitments (which assume one-way functions
+16https://docs.rs/sha3/latest/sha3/
+CCS ’23, November 26–30, 2023, Copenhagen, Denmark Ari Biswas and Graham Cormode
+Each client proves to
+the verifier and the
+provers in zero
+knowledge that their
+input x ∈ L
+Verifier
+Clients
+Provers
+X2
+X1
+ clients send shares
+of their input to the
+provers and hiding
+commitments of these
+shares to the verifier.
+n
+X2
+X1
+X2
+X1
+y = ℳ(X1, X2)
+The provers and
+verifier exchange
+messages. At the end
+the prover output
+ and
+the verifier decides to
+accept or not.
+y = ℳ(X1, X2)
+Verifiable DP
+Protocol
+Client
+Verification
+Setup And
+Inputs
+Figure 4: The figure above describes the latency of Σ-proof
+creation and verification as a function of the privacy parameters 𝑛𝑏 and 𝜖. For a fixed 𝛿 = 10−10
+, 𝜖 and 𝑛𝑏 have one to one
+correspondence given by Lemma 2.7.
+X2
+X1
+ℳ(X1, X2)
+overs and
+r exchange
+ges. At the end
+over output
+ and
+rifier decides to
+ or not.
+ℳ(X1, X2)
+able DP
+otocol
+Figure 5: The figure above describes the performance cost
+for using a Sigma protocol to verify that the client’s commitment is wellformed. PRIO and Poplar use lightweight
+sketching protocols and general-purpose MPC to check in
+zero knowledge whether a client’s input is a one-hot vector
+and do not need to assume one-way functions exist. But as
+described earlier, they are susceptible to collusion attacks.
+exist). Figure 5 benchmarks the increase in latency as a function of
+the number of dimensions (𝑀) of client input. We remark that the
+numbers in Figure 5 are pessimistic as the Sigma-OR proof can be
+parallelised across the 𝑀 dimensions (at the cost of communication
+complexity), whereas the sketching techniques cannot as they are
+based on the inner products.
+7 RELATED WORK
+Dwork et al. introduced DP and described the Laplace mechanism
+for outputting histograms in the trusted curator model [32]. Soon
+after, McSherry et al. proposed the exponential mechanism [49]
+(equivalently, report noisy max [29]), which lets us compute the
+(approximately) most frequent bucket in a histogram, also under
+pure differential privacy. Although these mechanisms give us pure
+differential privacy and optimal error rates 𝑂(
+1
+𝜖
+), implementing
+such a “central” model requires trusting that the curator to follow
+the protocol and not exploit the client data that it sees in plaintext.
+Therefore, researchers studied local privacy (LDP) [43] using randomised response [57] to prevent any other party from seeing data
+in plaintext. Cheu, Smith and Ullman showed that the randomised
+response algorithm generalises all locally private protocols [23].
+This generalisation highlights two unavoidable disadvantages of
+local differential privacy. The first is that the accuracy of the protocol for even the binary histogram is 𝑂(
+√
+𝑛) compared to 𝑂(1) in
+the central model. The second is that randomised response systems
+offer a much weaker definition of privacy than the usual cryptography standards such as semantic security. For example, if the client
+flips their original answer with probability 𝑝 = 0.1, the curator sees
+their sensitive information in plain text 90% of the time. Further
+increasing 𝑝 reduces the accuracy of the protocol dramatically. Consider the example from [25], where 1% of a million people answer
+“yes” to a survey about a sensitive topic. If we set 𝑝 = 0.49, then
+one-third of the time the central analyser concludes that not a single member of the population answered “yes”. Thus if we want to
+preserve utility, this definition of security is considerably weaker
+than the indistinguishability guarantees provided by protocols such
+as secret sharing.
+Shuffle privacy [5, 22, 34] analyses local mechanisms under the
+lens of central privacy and bridges the accuracy gap between local
+and central models. Various results [4, 36] prove that near central
+error guarantees are possible with distributed local transformations.
+Although this bypasses the accuracy issue of LDP, shuffle privacy
+assumes the existence of a secure shuffler, which is non-trivial to
+implement. Meanwhile, Bell et al. show that secure aggregation
+realises secure shuffling [8]. However, such protocols impose the impractical constraint of secure peer-to-peer communication between
+clients, and the curator is still a single source of failure. Despite the
+immense progress on differentially private histogram estimation, all
+known efficient implementations assume semi-honest participants
+and are a variant of either randomised response or the additive
+mechanism (where, additive mechanisms involve adding carefully
+curated randomness to the statistic before being released as output). It only takes a small fraction of clients to deviate from their
+prescribed protocol to destroy any utility of randomised response
+[23].
+To ensure central DP error without a trusted curator, Dwork et
+al. proposed using standard MPC for computing DP statistics [31].
+They proposed that each of the 𝐾 servers would own a fraction
+of the entire dataset used for computation. As long as not more
+than ⌊
+𝐾
+3
+⌋ of the servers are dishonest, it is possible to compute
+DP-histograms with optimal accuracy. However, the protocol is not
+publicly auditable and breaks down in presence of a dishonest majority of adversarial corruptions. McGregor et al. show a separation
+between DP obtained using a trusted curator and that obtained using MPC [48]. Specifically, they show that there exist computations
+(such as inner product or Hamming distance) where mechanisms
+with (1, 0)-DP incur Ω(
+√
+𝑛) reconstruction error compared to 𝑂(1)
+in presence of a trusted curator. To bridge this gap, Mironov et al.
+Interactive Proofs For Differentially Private Counting CCS ’23, November 26–30, 2023, Copenhagen, Denmark
+Table 2: Summary of efforts MPC computation of aggregate DP statistics. The active security column describes if the protocols
+allowed participants to deviate arbitrarily. The Central DP column describes if the protocol output satisfies constant DP error
+independent of the number of clients participating in the protocol. The auditable property describes if the final output can be
+verified for correctness. Some interactive protocols leak additional information (such as prefix information about client input
+bits) beyond just the DP output. The leakage column describes if the prescribed protocols suffered from additional leakage.
+Protocol Active Security Central DP Auditable Zero Leakage
+Cryptographic RR [3] ✓ ✓
+Verifiable Randomization Mechanism [45] ✓ ✓ ✓
+Securely Sampling Biased Coins [21] ✓ ✓
+MPC-DP heavy hitters[13] ✓ ✓
+PRIO [25] ✓ ✓
+Brave STAR [28]
+Sparse Histograms [8] ✓
+Crypt-𝜖 [53] ✓
+Poplar [15] ✓ ✓
+Our work ✓ ✓ ✓ ✓
+defined computational differential privacy, a relaxation of traditional DP [50]. They show that as long as semi-honest OT exists, it
+is possible to compute any computationally DP function with the
+same error rates as information theoretic DP in a trusted curator
+model. Histograms, unlike inner product and Hamming distance,
+can be computed using MPC with the same error rates as trusted
+curator DP, under infomation theoretic DP. Thus recent work has
+focused on computing histograms using MPC.
+Bohler et al. use MPC to compute heavy hitters with semi-honest
+adversaries [13]. Researchers at Brave use oblivious pseudorandom
+functions (OPRF’s) [41] and Shamir secret sharing [54] to compute
+𝑘-anonymous histograms in the two server setting [28]. However,
+they do not include support for differential privacy. Researchers
+at Google use linear homomorphic encryption and OPRFs to compute differentially private sparse histograms in two-server models
+(2PC) [9], but require both the servers and clients to be semi-honest.
+Corrigan-Gibbs propose PRIO, a protocol in which a small number of servers receive arithmetic shares of client input to compute
+differentially private histograms [25]. PRIO uses shared non interactive proofs (SNIPs) to prevent clients from submitting illegal inputs
+but the protocol is only honest-verifier zero knowledge. Following
+the popularity of PRIO, Addanki et al. introduce PRIO+ to work
+over Boolean shares [1]. Boneh et al. use distributed point functions (DPFs) [18] to compute DP heavy-hitters in the two server
+model to propose a system called Poplar [15] that is zero knowledge even in presence of active adversaries. Roy et al. introduce
+Crypt-𝜖, a generic system to compute differentially private statisitcs
+using garbled circuits and linear homomorphic encryption [53]. The
+general purpose natue of Crypt-𝜖 guarantees security only in the
+semi-honest threat model. Ambainis et al. proposed cryptographic
+randomised response [3] but are able to only guarantee local differential privacy. Table 2 summarises the assumptions under which
+the latest MPC protocols that have been used to compute DP statistics. As described earlier, existing work either assumes semi-honest
+adversaries or is not auditable. In 2021, the State Of Alabama sued
+the US deparment of commerce with regard to the errors caused
+due to random noise [42]. Differential Privacy by its defintion introduces a random noise blanket that tradesoff accuracy for privacy.
+This randomness is unavoidable if we wanted to protect individual
+privacy, but it also enables a corrupt aggregating server to disguise
+adversarial behaviour as randomness. In our paper, we first upgrade
+to security against active adversaries. Like existing literature we
+work in the dishonest majority model and further require the protocols to be publicly auditable. Our privacy constraints describe the
+most strict adversarial setting for practical deployment.
+8 CONCLUDING REMARKS
+We have introduced the notion of verifiable differential privacy
+to prevent malicious aggregators from using random noise as an
+attack vector. We have demonstrated the feasibility of this notion
+and showed that computational DP is necessary to achieve verifiability. A natural open question is to provide protocols for more
+complex DP mechanisms. Our protocol deliberately uses simple
+randomness (a Binomial distribution constructed from Bernoulli
+random variables), as making verifiable Laplace or Gaussian noise
+is far from clear. Similarly, approaches based on sampling from
+an appropriate distribution (the exponential mechanism) may be
+challenging since the distribution itself leaks information about the
+private data.
+Acknowledgements. We thank the anonymous shepherd for guiding us through implementing our results on elliptic curves, improving the performance, and for helping us to clarify the limits of
+interactive proofs for differential privacy. This work is supported
+in part by the UKRI Prosperity Partnership Scheme (FAIR) under
+the EPSRC Grant EP/V056883/1, and the Alan Turing Institute.
+REFERENCES
+[1] Surya Addanki, Kevin Garbe, Eli Jaffe, Rafail Ostrovsky, and Antigoni Polychroniadou. 2022. Prio+: Privacy preserving aggregate statistics via boolean shares.
+In Security and Cryptography for Networks. 516–539.
+[2] Ben Adida. 2008. Helios: Web-based Open-Audit Voting.. In USENIX security
+symposium, Vol. 17. 335–348.
+[3] Andris Ambainis, Markus Jakobsson, and Helger Lipmaa. 2004. Cryptographic
+randomized response techniques. In International Workshop on Public Key
+Cryptography. 425–438.
+CCS ’23, November 26–30, 2023, Copenhagen, Denmark Ari Biswas and Graham Cormode
+[4] Victor Balcer and Albert Cheu. 2020. Separating Local & Shuffled Differential
+Privacy via Histograms. arXiv:1911.06879 [cs] (2020). arXiv: 1911.06879.
+[5] Borja Balle, James Bell, Adrià Gascón, and Kobbi Nissim. 2019. The privacy
+blanket of the shuffle model. In International Cryptology Conference. 638–667.
+[6] Carsten Baum, Ivan Damgård, and Claudio Orlandi. 2014. Publicly auditable
+secure multi-party computation. In Security and Cryptography for Networks.
+175–196.
+[7] Carsten Baum, Alex J Malozemoff, Marc B Rosen, and Peter Scholl. 2021.
+Mac’n’Cheese : Zero-Knowledge Proofs for Boolean and Arithmetic Circuits
+with Nested Disjunctions. In International Cryptology Conference. 92–122.
+[8] James Bell, Kallista A Bonawitz, Adrià Gascón, Tancrède Lepoint, and Mariana
+Raykova. 2020. Secure single-server aggregation with (poly) logarithmic overhead.
+In ACM CCS. 1253–1269.
+[9] James Bell, Adria Gascon, Badih Ghazi, Ravi Kumar, Pasin Manurangsi, Mariana
+Raykova, and Phillipp Schoppmann. 2022. Distributed, Private, Sparse Histograms
+in the Two-Server Model. Cryptology ePrint Archive (2022).
+[10] Robert M Bell and Yehuda Koren. 2007. Lessons from the netflix prize challenge.
+Acm Sigkdd Explorations Newsletter 9, 2 (2007), 75–79.
+[11] Michael Ben-Or, Shafi Goldwasser, and Avi Wigderson. 2019. Completeness theorems for non-cryptographic fault-tolerant distributed computation. In Providing
+Sound Foundations for Cryptography: On the Work of Shafi Goldwasser and
+Silvio Micali. 351–371.
+[12] Manuel Blum. 1983. Coin flipping by telephone a protocol for solving impossible
+problems. ACM SIGACT News 15, 1 (1983), 23–27.
+[13] Jonas Böhler and Florian Kerschbaum. 2021. Secure Multi-party Computation of
+Differentially Private Heavy Hitters. In ACM CCS. 2361–2377.
+[14] Dan Boneh, Joseph Bonneau, Benedikt Bünz, and Ben Fisch. 2018. Verifiable
+delay functions. In CRYPTO. 757–788.
+[15] Dan Boneh, Elette Boyle, Henry Corrigan-Gibbs, Niv Gilboa, and Yuval Ishai.
+2021. Lightweight Techniques for Private Heavy Hitters. arXiv:2012.14884 [cs]
+(2021).
+[16] danah boyd and Jayshree Sarathy. 2022. Differential Perspectives: Epistemic
+Disconnects Surrounding the US Census Bureau’s Use of Differential Privacy.
+Harvard Data Science Review (Forthcoming) (2022).
+[17] Elette Boyle, Niv Gilboa, and Yuval Ishai. 2016. Function Secret Sharing: Improvements and Extensions. In ACM CCS. 1292–1303.
+[18] Elette Boyle, Niv Gilboa, and Yuval Ishai. 2019. Secure computation with preprocessing via function secret sharing. In Theory of Cryptography Conference.
+341–371.
+[19] Mark Bun, Yi-Hsiu Chen, and Salil Vadhan. 2016. Separating computational
+and statistical differential privacy in the client-server model. In Theory of
+Cryptography Conference. 607–634.
+[20] Benedikt Bünz, Jonathan Bootle, Dan Boneh, Andrew Poelstra, Pieter Wuille, and
+Greg Maxwell. 2018. Bulletproofs: Short proofs for confidential transactions and
+more. In IEEE S&P. 315–334.
+[21] Jeffrey Champion, Abhi Shelat, and Jonathan Ullman. 2019. Securely sampling
+biased coins with applications to differential privacy. In ACM CCS. 603–614.
+[22] Albert Cheu. 2021. Differential privacy in the shuffle model: A survey of separations. arXiv preprint arXiv:2107.11839 (2021).
+[23] Albert Cheu, Adam Smith, and Jonathan Ullman. 2021. Manipulation attacks in
+local differential privacy. In IEEE S&P. 883–900.
+[24] Richard Cleve. 1986. Limits on the security of coin flips when half the processors
+are faulty. In ACM STOC. 364–369.
+[25] Henry Corrigan-Gibbs and Dan Boneh. 2017. Prio: Private, Robust, and Scalable
+Computation of Aggregate Statistics. arXiv:1703.06255 [cs] (2017).
+[26] Ronald Cramer, Ivan Damgård, and Berry Schoenmakers. 1994. Proofs of partial
+knowledge and simplified design of witness hiding protocols. In CRYPTO. 174–
+187.
+[27] Ivan Damgård. 2000. Efficient concurrent zero-knowledge in the auxiliary string
+model. In the Theory and Applications of Cryptographic Techniques. 418–430.
+[28] Alex Davidson, Peter Snyder, EB Quirk, Joseph Genereux, and Benjamin Livshits.
+2021. STAR: Distributed Secret Sharing for Private Threshold Aggregation
+Reporting. arXiv preprint arXiv:2109.10074 (2021).
+[29] Zeyu Ding, Daniel Kifer, Thomas Steinke, Yuxin Wang, Yingtai Xiao, Danfeng
+Zhang, et al. 2021. The permute-and-flip mechanism is identical to report-noisymax with exponential noise. arXiv preprint arXiv:2105.07260 (2021).
+[30] Samuel Dittmer, Yuval Ishai, and Rafail Ostrovsky. 2020. Line-point zero knowledge and its applications. Cryptology ePrint Archive (2020).
+[31] Cynthia Dwork, Krishnaram Kenthapadi, Frank McSherry, Ilya Mironov, and
+Moni Naor. 2006. Our data, ourselves: Privacy via distributed noise generation.
+In the theory and applications of cryptographic techniques. 486–503.
+[32] Cynthia Dwork, Frank McSherry, Kobbi Nissim, and Adam Smith. 2006. Calibrating noise to sensitivity in private data analysis. In Theory of cryptography
+conference. 265–284.
+[33] Cynthia Dwork and Moni Naor. 2000. Zaps and their applications. In Proceedings
+41st Symposium on Foundations of Computer Science. 283–293.
+[34] Úlfar Erlingsson, Vitaly Feldman, Ilya Mironov, Ananth Raghunathan, Kunal
+Talwar, and Abhradeep Thakurta. 2020. Amplification by Shuffling: From Local to
+Central Differential Privacy via Anonymity. arXiv:1811.12469 [cs, stat] (2020).
+[35] Simson Garfinkel, John M Abowd, and Christian Martindale. 2019. Understanding
+database reconstruction attacks on public data. CACM 62, 3 (2019), 46–53.
+[36] Badih Ghazi, Noah Golowich, Ravi Kumar, Rasmus Pagh, and Ameya Velingker.
+2020. On the Power of Multiple Anonymous Messages. arXiv:1908.11358 [cs,
+stat] (2020).
+[37] Oded Goldreich. 2007. Foundations of cryptography. Vol. 1: Basic tools (digitally
+print. 1. paperback version ed.). Vol. 1. Cambridge Univ. Press, Cambridge.
+[38] Adam Groce, Jonathan Katz, and Arkady Yerukhimovich. 2011. Limits of computational differential privacy in the client/server setting. In Theory of Cryptography
+Conference. 417–431.
+[39] Iftach Haitner and Eran Omri. 2014. Coin flipping with constant bias implies
+one-way functions. SICOMP 43, 2 (2014), 389–409.
+[40] Luke Harrison, Samiran Bag, Hang Luo, and Feng Hao. 2022. VERICONDOR:
+End-to-End Verifiable Condorcet Voting without Tallying Authorities. In ACM
+ASIACCS. 1113–1125.
+[41] Stanisław Jarecki and Xiaomin Liu. 2009. Efficient oblivious pseudorandom function with applications to adaptive OT and secure computation of set intersection.
+In Theory of Cryptography Conference. 577–594.
+[42] Brennan Center For Justice. 2021. Alabama v. U.S. Dept of Commerce. https://
+www.brennancenter.org/our-work/court-cases/alabama-v-us-dept-commerce
+[43] Shiva Prasad Kasiviswanathan, Homin K Lee, Kobbi Nissim, Sofya Raskhodnikova,
+and Adam Smith. 2011. What can we learn privately? SICOMP 40, 3 (2011), 793–
+826.
+[44] Shiva Prasad Kasiviswanathan, Mark Rudelson, and Adam Smith. 2013. The
+power of linear reconstruction attacks. In ACM-SIAM SODA. 1415–1433.
+[45] Fumiyuki Kato, Yang Cao, and Masatoshi Yoshikawa. 2021. Preventing Manipulation Attack in Local Differential Privacy Using Verifiable Randomization
+Mechanism. In IFIP Conf. on Data and Applications Security and Privacy. 43–60.
+[46] Yehuda Lindell. 2017. How to simulate it–a tutorial on the simulation proof
+technique. Tutorials on the Foundations of Cryptography (2017), 277–346.
+[47] Ueli Maurer. 2009. Unifying zero-knowledge proofs of knowledge. In Cryptology
+in Africa. 272–286.
+[48] Andrew McGregor, Ilya Mironov, Toniann Pitassi, Omer Reingold, Kunal Talwar,
+and Salil Vadhan. 2010. The limits of two-party differential privacy. In IEEE
+FOCS. 81–90.
+[49] Frank McSherry and Kunal Talwar. 2007. Mechanism design via differential privacy. In 48th IEEE Symposium on Foundations of Computer Science (FOCS’07).
+94–103.
+[50] Ilya Mironov, Omkant Pandey, Omer Reingold, and Salil Vadhan. 2009. Computational differential privacy. In International Cryptology Conference. 126–142.
+[51] Torben Pryds Pedersen. 1991. Non-interactive and information-theoretic secure
+verifiable secret sharing. In CRYPTO. 129–140.
+[52] Varun Raturi, Jinhyun Hong, David Philip McArthur, and Mark Livingston. 2021.
+The impact of privacy protection measures on the utility of crowdsourced cycling
+data. Journal of Transport Geography 92 (2021), 103020.
+[53] Amrita Roy Chowdhury, Chenghong Wang, Xi He, Ashwin Machanavajjhala,
+and Somesh Jha. 2020. Crypt𝜖: Crypto-assisted differential privacy on untrusted
+servers. In ACM SIGMOD. 603–619.
+[54] Adi Shamir. 1979. How to share a secret. CACM 22, 11 (1979), 612–613.
+[55] Justin Thaler. 2020. Proofs, arguments, and zero-knowledge.
+[56] Salil Vadhan. 2017. The complexity of differential privacy. In Tutorials on the
+Foundations of Cryptography. Springer, 347–450.
+[57] Stanley L Warner. 1965. Randomized response: A survey technique for eliminating
+evasive answer bias. J. Amer. Statist. Assoc. 60, 309 (1965), 63–69.
+[58] Chenkai Weng, Kang Yang, Jonathan Katz, and Xiao Wang. 2021. Wolverine: fast,
+scalable, and communication-efficient zero-knowledge proofs for boolean and
+arithmetic circuits. In IEEE S&P. 1074–1091.
+A FORMAL SECURITY DEFINITIONS
+Definition A.1 (Discrete Log Assumption). Let 𝜅 denote the security parameter. For all PPT adversaries A, there exists a negligible
+function 𝜇 such that
+Pr
+
+
+
+
+
+
+
+𝑥 = 𝑥
+′
+:
+(G𝑞, 𝑔) ← Setup(1
+𝜅
+)
+𝑥
+𝑅←− Z𝑞, ℎ = 𝑔
+𝑥
+𝑥
+′ ← A (pp, ℎ)
+
+
+
+
+
+
+
+≤ 𝜇(𝜅)
+Definition A.2. (Hiding Commitments) Let 𝜅 be the security parameter. A commitment scheme is said to be hiding for all PPT
+Interactive Proofs For Differentially Private Counting CCS ’23, November 26–30, 2023, Copenhagen, Denmark
+Verifier Prover
+1 : Common Input 𝑔, ℎ, G𝑞, 𝑞, 𝑐
+2 : 𝑏, 𝑣1, 𝑒1
+𝑅←− Z𝑞; Set 𝑑0 = ℎ
+𝑏
+and 𝑑1 such that 𝑑1
+
+𝑐
+𝑔
+𝑒1
+= ℎ
+𝑣1
+3 : (𝑑0, 𝑑1 )
+(𝑑0, 𝑑1 )
+(𝑑0, 𝑑1 )
+4 : 𝑒
+𝑅←− Z𝑞
+𝑒
+𝑒0 = 𝑒 − 𝑒1 mod 𝑞; 𝑣0 = 𝑏 + 𝑒0𝑟𝑥
+5 : Check 𝑒1 + 𝑒0 = 𝑒
+(𝑣0, 𝑒0, 𝑣1, 𝑒1 )
+6 : Check 𝑑0𝑐
+𝑒0 = ℎ
+𝑣0 and 𝑑1𝑐
+𝑒1 = 𝑔
+𝑒1ℎ
+𝑣1
+Figure 6: Proof for convincing Vfr that 𝑐𝑥 = 𝑔
+𝑥ℎ
+𝑟𝑥 without revealing the value 𝑥 = 0.
+Verifier Prover
+1 : Common Input 𝑔, ℎ, G𝑞, 𝑞, 𝑐
+2 : 𝑏, 𝑣0, 𝑒0
+𝑅←− Z𝑞 . Set 𝑑1 = ℎ
+𝑏
+and 𝑑0 such that 𝑑0𝑐
+𝑒0 = ℎ
+𝑣0
+3 : (𝑑0, 𝑑1 )
+(𝑑0, 𝑑1 )
+(𝑑0, 𝑑1 )
+4 : 𝑒
+𝑅←− Z𝑞
+𝑒
+𝑒1 = 𝑒 − 𝑒0 mod 𝑞; 𝑣1 = 𝑏 + 𝑒1𝑟𝑥
+5 : Check 𝑒1 + 𝑒0 = 𝑒
+(𝑣0, 𝑒0, 𝑣1, 𝑒1 )
+6 : Check 𝑑0𝑐
+𝑒0 = ℎ
+𝑣0 and 𝑑1𝑐
+𝑒1 = 𝑔
+𝑒1ℎ
+𝑣1
+Figure 7: Proof for convincing Vfr that 𝑐𝑥 = 𝑔
+𝑥ℎ
+𝑟𝑥 without revealing the value 𝑥 = 1.
+adversaries A, if the following quantity is negligible. The commitment is perfectly hiding if 𝜇(𝜅) = 0.
+Pr
+
+
+
+
+
+
+
+
+
+𝑏 = 𝑏
+′
+:
+pp ← Setup(1
+𝜅
+)
+𝑏
+𝑅←− {0, 1}, 𝑟𝑥𝑏
+𝑅←− Rpp
+(𝑥0, 𝑥1) ∈ M2
+pp ← A (pp)
+𝑐 = Com(𝑥𝑏
+, 𝑟𝑥𝑏
+), 𝑏′ = A (pp, 𝑐)
+
+
+
+
+
+
+
+
+
+≤ 𝜇(𝜅)
+Definition A.3. (Binding Commitments) Let 𝜅 be the security
+parameter. A commitment scheme is said to be binding if, for all
+PPT adversaries A, there exists a negligible function 𝜇 such that
+
+
+
+
+
+
+Pr
+
+
+
+
+
+
+(𝑐𝑥0 = 𝑐𝑥1
+) :
+pp ← Setup(1
+𝜅
+)
+𝑥0, 𝑟𝑥0
+, 𝑥1, 𝑟𝑥1 ← A (pp)
+s.t 𝑥0 ≠ 𝑥1
+
+
+
+
+
+
+−
+1
+2
+
+
+
+
+
+
+≤ 𝜇(𝜅)
+The commitment is perfectly binding if 𝜇(𝜅) = 0.
+B OR PROTOCOL
+Define as public parameters a cyclic prime order group G𝑞 and
+generators 𝑔 and ℎ for G𝑞. Let Mpp = Rpp = Z𝑞. Pedersen Commitments defined in (13) satisfy all properties described in Section 2.2.
+Com(𝑥, 𝑟𝑥 ) = 𝑔
+𝑥
+ℎ
+𝑟𝑥
+(13)
+For the sake of completeness, we describe the interactive disjunctive OR proof using Σ-protocols from [26]. Note that the Σ protocols
+are cheating verifier zero knowledge even without a random oracle.
+Maurer [47] shows that if the verifier’s challenge space is polynomial sized, then the protocol can be shown to be zero knowledge.
+Damgard et al. show that by using Trapdoor commitments [27], one
+can preserve soundness and get zero knowledge but the protocol
+now has four messaging rounds instead of 3. Next, we describe the
+Σ-protocol that can be used to verify the OR condition.
+Let 𝑥 ∈ {0, 1} and 𝑐𝑥 = Com(𝑥, 𝑟𝑥 ) for 𝑟𝑥
+𝑅←− Z𝑞 be the commitment to 𝑥. Given 𝑐𝑥 , ΠOR is an interactive zero knowledge proof
+between a prover Pv and a PPT verifier Vfr to show that 𝑐𝑥 ∈ 𝐿Bit.
+The security properties can be found in [26, 27, 55]. Figure 6 and
+Figure 7 succintly describe the OR protocol to prove that 𝑐𝑥 ∈ 𝐿Bit.
+𝐿Bit = {𝑐𝑥 : 𝑥 ∈ {0, 1} ∧ 𝑐𝑥 = Com(𝑥, 𝑟𝑥 )} (14)
+C DEFERRED SECURITY PROOFS
+Single Curator Simulator Proof.
+Theorem C.1. Let Vfr∗
+denote the corrupted verifier. There exists
+a PPT Simulator Sim(Vfr∗
+)
+such that for all 𝑦 = MBin (𝑋, 𝑄)
+View [Π(Pv, Vfr)]
+𝑐
+≡ Sim(Vfr∗ (𝑦,𝑟®𝑣, 𝑧, pp)
+where 𝑧 ∈ {0, 1}
+poly(𝜅) and 𝑟®𝑣 ∈ {0, 1}
+poly(𝜅)
+represents auxiliary input and randomness available to all the corrupted parties.
+Proof. Denote the corrupted verifier as Vfr∗
+. Sim receives on
+its input tape the inputs for Vfr∗
+. The ideal oracle functionality
+MBin is defined as before. Let Sim denote shorthand for SimVfr∗ .
+We construct the simulator as follows:
+(1) Sim receives the public messages {𝑐𝑖 }𝑖∈ [𝑛]
+.
+(2) Sim invokes Mbin with the empty string 𝜆 and receives 𝑦
+as defined in equation (7).
+(3) Sim samples 𝑧
+𝑅←− Rpp and sets 𝑐 = Com(𝑦, 𝑧).
+(4) Sim samples 𝑐
+′
+2
+, . . . , 𝑐′
+𝑛𝑏
+such that 𝑐
+′
+𝑗
+= Com(1, 𝑠𝑗) where
+𝑠𝑗
+𝑅←− Rpp. It sets 𝑐
+′
+1
+= 𝑔
+1𝑎 where 𝑎 = 𝑐 ×
+ Î𝑛𝑏
+𝑗=2
+𝑐ˆ
+′
+𝑗
+−1
+×
+ Î𝑛
+𝑖=1
+𝑐𝑖
+−1
+× 𝑔
+−1
+.
+(5) Sim sends over {𝑐𝑗 }𝑗 ∈ [𝑛𝑏 ]
+to A pretending to be the honest
+prover (Line 4 of Figure 3).
+(6) Sim pretends to be the prover and jointly invokes OMorra
+with A to sample 𝑛𝑏 unbiased public bits (𝑏1, . . . , 𝑏𝑛𝑏
+).
+(7) Sim sends 𝑦 and 𝑧 to A and outputs whatever A outputs.
+□
