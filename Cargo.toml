@@ -25,6 +25,7 @@ bulletproofs = "*"
 merlin = "*"
 curve25519-dalek-ng = "*"
 wasm-bindgen = "0.2.100"
+num-bigint = "0.4.6"
 
 [dev-dependencies]
 criterion = "0.4"

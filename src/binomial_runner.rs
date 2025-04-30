@@ -2,9 +2,8 @@ use wasm_bindgen::prelude::*;
 use curve25519_dalek::{constants, ristretto::RistrettoPoint, scalar::Scalar};
 use crate::participants;
 use crate::generic_commitments::Commitment;
-use crate::sigma_ff::ProofScalar;
 use coinflip::flip;
-use num_bigint::{BigInt, BigUint};
+use num_bigint::BigUint;
 
 use rand_core::OsRng;
 
