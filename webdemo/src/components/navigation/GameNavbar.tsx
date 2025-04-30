@@ -21,6 +21,10 @@ export default function GameNavbar({ onBack }: GameNavbarProps) {
           <div className="color-square public"></div>
           <span>Public to the verifier</span>
         </div>
+        <div className="color-reference">
+          <div className="color-square nefarious"></div>
+          <span>Attempt to lie by the Curator</span>
+        </div>
       </div>
     </nav>
   );

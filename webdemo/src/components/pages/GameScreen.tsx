@@ -19,6 +19,7 @@ interface PedersenCommitment {
   x: number;  // The input value
   r: number;  // Random number
   status: 'pending' | 'committing' | 'committed';
+  animationDelay?: number;  // Add animation delay property
 }
 
 interface CSVColumn {
@@ -42,13 +43,20 @@ interface CSVReaderProps {
   Remove: React.ComponentType;
 }
 
+interface PrivateBit {
+  value: number;
+  sampledVia: 'uniform' | 'manual' | 'probability';
+}
+
 export default function GameScreen({ onBack }: GameScreenProps) {
   const [clients, setClients] = useState<ClientInput[]>([]);
-  const [epsilon, setEpsilon] = useState<number>(1.0);
+  const [epsilon, setEpsilon] = useState<number>(0.1);
+  const [delta, setDelta] = useState<number>(0.1);
   const [count, setCount] = useState<number>(0);
   const [displayedClientCount, setDisplayedClientCount] = useState<number>(0);
   const [isCommitting, setIsCommitting] = useState<boolean>(false);
   const [pedersenCommitments, setPedersenCommitments] = useState<PedersenCommitment[]>([]);
+  const [privateBits, setPrivateBits] = useState<PrivateBit[]>([]);
   const [step, setStep] = useState<
     'input' | 
     'commit-inputs' | 
@@ -144,7 +152,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
       case 'set-epsilon':
         return "The privacy parameter ε is set, which controls the level of differential privacy. A smaller ε provides stronger privacy guarantees but may reduce accuracy.";
       case 'sample-bits':
-        return "Private random bits are sampled for each client. These bits will be used to add noise to the computation while maintaining differential privacy.";
+        return "n_b (determined by epsilon) private random bits are sampled. These bits will be used to add DP-noise to the computation.";
       case 'commit-bits':
         return "Clients commit to their private random bits using Pedersen commitments, similar to step 2. This ensures the bits cannot be changed later.";
       case 'prove-binary':
@@ -187,58 +195,26 @@ export default function GameScreen({ onBack }: GameScreenProps) {
     if (isCommitting || clients.length === 0) return;
     setIsCommitting(true);
 
-    const newCommitments: PedersenCommitment[] = clients.map(client => ({
+    // Create all commitments at once with animation delays
+    const newCommitments: PedersenCommitment[] = clients.map((client, index) => ({
       id: client.id,
       x: client.value,
       r: Math.floor(Math.random() * 1000000),
-      status: 'pending'
+      status: 'pending',
+      animationDelay: (index / clients.length) * 5 // Spread animations over 5 seconds
     }));
 
+    // Update state once with all commitments
     setPedersenCommitments(newCommitments);
-
-    const BATCH_SIZE = 200;
-    const BATCH_DELAY = 20;
-    const TOTAL_BATCHES = Math.ceil(clients.length / BATCH_SIZE);
     
-    let batchIndex = 0;
-
-    const processBatch = () => {
-      if (batchIndex >= TOTAL_BATCHES) {
-        setIsCommitting(false);
-        handleStepComplete('set-epsilon');
-        return;
-      }
-
-      const startIdx = batchIndex * BATCH_SIZE;
-      const endIdx = Math.min((batchIndex + 1) * BATCH_SIZE, newCommitments.length);
-      
-      requestAnimationFrame(() => {
-        setPedersenCommitments(prev => 
-          prev.map((commit, idx) => {
-            if (idx >= startIdx && idx < endIdx) {
-              return { ...commit, status: 'committing' };
-            }
-            return commit;
-          })
-        );
-
-        setTimeout(() => {
-          setPedersenCommitments(prev => 
-            prev.map((commit, idx) => {
-              if (idx >= startIdx && idx < endIdx) {
-                return { ...commit, status: 'committed' };
-              }
-              return commit;
-            })
-          );
-        }, BATCH_DELAY / 2);
-      });
-
-      batchIndex++;
-      setTimeout(processBatch, BATCH_DELAY);
-    };
-
-    processBatch();
+    // Set a timeout to mark all commitments as committed after animations
+    setTimeout(() => {
+      setPedersenCommitments(prev => 
+        prev.map(commit => ({ ...commit, status: 'committed' }))
+      );
+      setIsCommitting(false);
+      handleStepComplete('set-epsilon');
+    }, 5000); // 5 seconds total animation time
   }, [isCommitting, clients, handleStepComplete]);
 
   // Generate and verify the proof
@@ -262,12 +238,16 @@ export default function GameScreen({ onBack }: GameScreenProps) {
       <div style={style}>
         <div
           className={`w-full h-full transition-all duration-300 relative flex items-center justify-center tooltip ${
-            commit.status === 'pending' ? 'bg-gray-200' :
+            commit.status === 'pending' ? 'bg-gray-200 opacity-0' :
             commit.status === 'committing' ? 'bg-blue-400 animate-pulse' :
             'bg-green-500'
           }`}
+          style={{
+            animation: commit.status === 'pending' ? `fadeIn 0.3s ease-in-out forwards` : 'none',
+            animationDelay: `${commit.animationDelay}s`
+          }}
         >
-          <span className="text-[14px] font-mono text-black">c<sub>{index}</sub></span>
+          <span className="text-[12px] font-mono text-black">c<sub>{index}</sub></span>
           <div className="tooltiptext">
             <div className="text-sm whitespace-nowrap">
               <div>Client {index + 1}:</div>
@@ -377,10 +357,75 @@ export default function GameScreen({ onBack }: GameScreenProps) {
     handleStepComplete('commit-inputs');
   };
 
+  // Add function to calculate n_b based on epsilon
+  const calculateNB = (epsilon: number) => {
+    // From Lemma 2.7 in the paper: n_b = (10/epsilon)^2 * ln(2/delta)
+    return Math.ceil(Math.pow(10 / epsilon, 2) * Math.log(2 / delta));
+  };
+
+  const PrivateBitsGrid = useCallback(() => {
+    if (privateBits.length === 0) return null;
+
+    return (
+      <div className="w-full flex justify-center mt-4">
+        <div className="w-[600px] border rounded-lg shadow-sm bg-white p-4">
+          <div className="grid grid-cols-100 gap-1">
+            {privateBits.map((bit, index) => (
+              <div
+                key={index}
+                className="aspect-square bg-blue-500 text-white flex items-center justify-center tooltip"
+              >
+                <span className="text-[8px] font-mono">+{bit.value}</span>
+                <div className="tooltiptext">
+                  <div className="text-sm whitespace-nowrap">
+                    <div>Bit {index + 1}:</div>
+                    <div>Value: {bit.value}</div>
+                    <div>Sampled via: {bit.sampledVia}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }, [privateBits]);
+
+  const handleUniformSample = () => {
+    const n_b = calculateNB(epsilon);
+    const newBits = Array(n_b).fill(0).map(() => ({
+      value: Math.random() < 0.5 ? 1 : 0,
+      sampledVia: 'uniform' as const
+    }));
+    setPrivateBits(newBits);
+    handleStepComplete('commit-bits');
+  };
+
+  const handleManualSet = () => {
+    const n_b = calculateNB(epsilon);
+    const newBits = Array(n_b).fill(0).map(() => ({
+      value: 0,
+      sampledVia: 'manual' as const
+    }));
+    setPrivateBits(newBits);
+    // TODO: Implement manual bit setting interface
+    alert('Manual bit setting interface would go here');
+  };
+
   return (
     <div className="flex flex-col min-h-screen bg-gray-100">
       <style>
         {`
+          @keyframes fadeIn {
+            from {
+              opacity: 0;
+              transform: scale(0.8);
+            }
+            to {
+              opacity: 1;
+              transform: scale(1);
+            }
+          }
           .tooltip {
             position: relative;
             display: inline-block;
@@ -619,63 +664,111 @@ export default function GameScreen({ onBack }: GameScreenProps) {
                 {isCommitting ? <p className="m-0 mb-5 text-gray-600 text-lg">Committing all raw inputs...</p> : null}
                 <div className="w-full mb-4">
                   {pedersenCommitments.length > 0 && (
-                    <Grid
-                      className="pedersen-grid-container"
-                      columnCount={50}
-                      columnWidth={30}
-                      rowCount={Math.ceil(pedersenCommitments.length / 50)}
-                      rowHeight={30}
-                      width={1500}
-                      height={Math.ceil(pedersenCommitments.length / 50) * 30}
-                    >
-                      {Cell}
-                    </Grid>
+                    <div className="w-full flex justify-center">
+                      <div className="w-[600px] h-[600px] overflow-y-auto border rounded-lg shadow-sm bg-white">
+                        <Grid
+                          className="pedersen-grid-container"
+                          columnCount={50}
+                          columnWidth={30}
+                          rowCount={Math.ceil(pedersenCommitments.length / 50)}
+                          rowHeight={30}
+                          width={600}
+                          height={600}
+                        >
+                          {Cell}
+                        </Grid>
+                      </div>
+                    </div>
                   )}
                 </div>
-                <Button 
-                  onClick={handleCommitInputs}
-                  disabled={!isStepEnabled('commit-inputs') || clients.length === 0 || isCommitting}
-                >
-                  {isCommitting ? 'Committing...' : 'Commit Inputs'}
-                </Button>
+                <div className="w-full flex justify-center">
+                  <Button 
+                    onClick={handleCommitInputs}
+                    disabled={!isStepEnabled('commit-inputs') || clients.length === 0 || isCommitting}
+                    className="w-1/2 py-6 text-lg"
+                  >
+                    {isCommitting ? 'Committing...' : 'Commit Inputs'}
+                  </Button>
+                </div>
               </div>
             </div>
             <div className={`p-8 text-center border rounded transition-all relative w-full flex flex-col justify-between min-h-[200px] ${getStepStyle('set-epsilon')}`}>
-              <StepHeader step="set-epsilon" title="Step 3: Set Epsilon" />
+              <StepHeader step="set-epsilon" title="Step 3: Set Privacy Parameters" />
               <div className="flex flex-col items-center gap-5 w-full my-5">
                 <div className="flex items-center gap-4">
-                  <input 
-                    type="number" 
-                    min="0.1" 
-                    max="5" 
-                    step="0.1" 
-                    value={epsilon} 
-                    onChange={(e) => {
-                      const value = parseFloat(e.target.value);
-                      if (!isNaN(value) && value >= 0.1 && value <= 5) {
-                        setEpsilon(value);
-                      }
-                    }}
-                    className="w-32 px-3 py-2 border rounded-md text-center"
-                  />
-                  <span className="text-xl font-bold text-blue-500 px-4 py-1 bg-blue-50 rounded">ε = {epsilon}</span>
+                  <div className="flex flex-col items-center gap-2">
+                    <label className="text-sm text-gray-600">Epsilon (ε)</label>
+                    <input 
+                      type="number" 
+                      min="0.1" 
+                      max="5" 
+                      step="0.1" 
+                      value={epsilon} 
+                      onChange={(e) => {
+                        const value = parseFloat(e.target.value);
+                        if (!isNaN(value) && value >= 0.1 && value <= 5) {
+                          setEpsilon(value);
+                        }
+                      }}
+                      className="w-32 px-3 py-2 border rounded-md text-center"
+                    />
+                    <span className="text-xl font-bold text-blue-500 px-4 py-1 bg-blue-50 rounded">ε = {epsilon}</span>
+                  </div>
+                  <div className="flex flex-col items-center gap-2">
+                    <label className="text-sm text-gray-600">Delta (δ)</label>
+                    <input 
+                      type="number" 
+                      min="0.01" 
+                      max="0.5" 
+                      step="0.01" 
+                      value={delta} 
+                      onChange={(e) => {
+                        const value = parseFloat(e.target.value);
+                        if (!isNaN(value) && value >= 0.01 && value <= 0.5) {
+                          setDelta(value);
+                        }
+                      }}
+                      className="w-32 px-3 py-2 border rounded-md text-center"
+                    />
+                    <span className="text-xl font-bold text-blue-500 px-4 py-1 bg-blue-50 rounded">δ = {delta}</span>
+                  </div>
                 </div>
               </div>
               <Button 
                 onClick={() => handleStepComplete('sample-bits')}
                 disabled={!isStepEnabled('set-epsilon') || !isStepCompleted('commit-inputs')}
               >
-                Confirm Epsilon
+                Confirm Privacy Parameters
               </Button>
             </div>
             <div className={`p-8 text-center border rounded transition-all relative w-full flex flex-col justify-between min-h-[200px] ${getStepStyle('sample-bits')}`}>
               <StepHeader step="sample-bits" title="Step 4: Sample Private Bits" />
-              <Button 
-                onClick={() => handleStepComplete('commit-bits')}
-                disabled={!isStepEnabled('sample-bits') || !isStepCompleted('set-epsilon')}
-              >
-                Sample Bits
-              </Button>
+              <div className="flex flex-col items-center gap-4">
+                <div className="grid grid-cols-3 gap-4 w-full max-w-2xl mx-auto">
+                  <Button 
+                    onClick={handleUniformSample}
+                    disabled={!isStepEnabled('sample-bits') || !isStepCompleted('set-epsilon')}
+                    className="w-full py-4"
+                  >
+                    Uniformly Sample Private Bits
+                  </Button>
+                  <Button 
+                    onClick={handleManualSet}
+                    disabled={!isStepEnabled('sample-bits') || !isStepCompleted('set-epsilon')}
+                    className="w-full py-4 bg-red-500 hover:bg-red-600"
+                  >
+                    Manually Set Private Bits
+                  </Button>
+                  <Button 
+                    onClick={handleManualSet}
+                    disabled={!isStepEnabled('sample-bits') || !isStepCompleted('set-epsilon')}
+                    className="w-full py-4 bg-red-500 hover:bg-red-600"
+                  >
+                    Manually Set Probability
+                  </Button>
+                </div>
+                <PrivateBitsGrid />
+              </div>
             </div>
             <div className={`p-8 text-center border rounded transition-all relative w-full flex flex-col justify-between min-h-[200px] ${getStepStyle('commit-bits')}`}>
               <StepHeader step="commit-bits" title="Step 5: Commit Private Bits" />
