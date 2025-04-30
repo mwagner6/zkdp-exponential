@@ -9,6 +9,7 @@ pub mod beaver_triple;
 pub mod utils;
 pub mod converters;
 pub mod public_parameters;
+pub mod binomial_runner;
 
 pub mod generic_commitments; //Commitment Schemes
 pub mod finite_field_coms; // Finite field commitments using openSSL
