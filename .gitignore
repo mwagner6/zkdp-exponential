@@ -1,18 +1,20 @@
+# Rust
 /target
 
-webdemo/# Dependencies
-webdemo//node_modules
-webdemo//.pnp
+# Dependencies
+webdemo/node_modules
+webdemo/.pnp
 webdemo/.pnp.js
+webdemo/pnpm-lock.yaml
 
-webdemo/# Testing
-webdemo//coverage
+# Testing
+webdemo/coverage
 
-webdemo/# Production
-webdemo//build
-webdemo//dist
+# Production
+webdemo/build
+webdemo/dist
 
-webdemo/# Misc
+# Misc
 webdemo/.DS_Store
 webdemo/.env.local
 webdemo/.env.development.local
@@ -20,12 +22,13 @@ webdemo/.env.test.local
 webdemo/.env.production.local
 webdemo/.env
 
-webdemo/# Logs
+# Logs
 webdemo/npm-debug.log*
 webdemo/yarn-debug.log*
 webdemo/yarn-error.log*
+webdemo/pnpm-debug.log*
 
-webdemo/# Editor directories and files
+# Editor directories and files
 webdemo/.idea
 webdemo/.vscode
 webdemo/*.suo
@@ -34,20 +37,25 @@ webdemo/*.njsproj
 webdemo/*.sln
 webdemo/*.sw?
 
-webdemo/# TypeScript
+# TypeScript
 webdemo/*.tsbuildinfo
 
-webdemo/# Optional npm cache directory
+# Optional npm cache directory
 webdemo/.npm
 
-webdemo/# Optional eslint cache
+# Optional eslint cache
 webdemo/.eslintcache
 
-webdemo/# Optional REPL history
+# Optional REPL history
 webdemo/.node_repl_history
 
-webdemo/# Output of 'npm pack'
+# Output of 'npm pack'
 webdemo/*.tgz
 
-webdemo/# Yarn Integrity file
+# Yarn Integrity file
 webdemo/.yarn-integrity
+
+# Build configuration
+# Uncomment these if you want to ignore the config files
+# webdemo/postcss.config.js
+# webdemo/tailwind.config.js
