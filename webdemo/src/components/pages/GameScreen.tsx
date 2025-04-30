@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useMemo } from 'react';
+import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import { FixedSizeGrid as Grid } from 'react-window';
 import GameNavbar from '../navigation/GameNavbar';
 import { Button } from '../ui/button';
@@ -45,13 +45,14 @@ interface CSVReaderProps {
 
 interface PrivateBit {
   value: number;
-  sampledVia: 'uniform' | 'manual' | 'probability';
+  sampledVia: 'uniform' | 'manual' | 'manual probability';
+  committed: boolean;
 }
 
 export default function GameScreen({ onBack }: GameScreenProps) {
   const [clients, setClients] = useState<ClientInput[]>([]);
-  const [epsilon, setEpsilon] = useState<number>(0.1);
-  const [delta, setDelta] = useState<number>(0.1);
+  const [epsilon, setEpsilon] = useState<number>(1);
+  const [delta, setDelta] = useState<number>(0.001);
   const [count, setCount] = useState<number>(0);
   const [displayedClientCount, setDisplayedClientCount] = useState<number>(0);
   const [isCommitting, setIsCommitting] = useState<boolean>(false);
@@ -77,10 +78,13 @@ export default function GameScreen({ onBack }: GameScreenProps) {
   const [selectedColumn, setSelectedColumn] = useState<string>('');
   const [threshold, setThreshold] = useState<number>(0);
   const [isDragging, setIsDragging] = useState<boolean>(false);
+  const [lastDraggedIndex, setLastDraggedIndex] = useState<number | null>(null);
   const countRef = useRef<HTMLDivElement>(null);
   const { CSVReader } = useCSVReader();
   const [isParsing, setIsParsing] = useState<boolean>(false);
   const [parseError, setParseError] = useState<string | null>(null);
+  const [samplingMethod, setSamplingMethod] = useState<'uniform' | 'manual' | 'probability' | null>(null);
+  const [probability, setProbability] = useState<number>(0.5);
 
   const isStepCompleted = (stepName: string) => {
     return completedSteps.has(stepName);
@@ -201,7 +205,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
       x: client.value,
       r: Math.floor(Math.random() * 1000000),
       status: 'pending',
-      animationDelay: (index / clients.length) * 5 // Spread animations over 5 seconds
+      animationDelay: (index / clients.length) * 2
     }));
 
     // Update state once with all commitments
@@ -214,7 +218,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
       );
       setIsCommitting(false);
       handleStepComplete('set-epsilon');
-    }, 5000); // 5 seconds total animation time
+    }, 2000);
   }, [isCommitting, clients, handleStepComplete]);
 
   // Generate and verify the proof
@@ -260,6 +264,59 @@ export default function GameScreen({ onBack }: GameScreenProps) {
       </div>
     );
   }, [pedersenCommitments]);
+
+  const PrivateBitsCell = useCallback(({ columnIndex, rowIndex, style }: { columnIndex: number; rowIndex: number; style: React.CSSProperties }) => {
+    const numCols = 50;
+    const index = rowIndex * numCols + columnIndex;
+
+    if (index >= privateBits.length) {
+      return null;
+    }
+
+    const bit = privateBits[index];
+    const isCommitted = bit.committed;
+
+    return (
+      <div style={style}>
+        <div
+          className={`w-full h-full transition-all duration-300 relative flex items-center justify-center tooltip ${
+            !isCommitted ? 'bg-gray-200 opacity-0' :
+            isCommitting ? 'bg-blue-400 animate-pulse' :
+            'bg-green-500'
+          }`}
+          style={{
+            animation: !isCommitted ? `fadeIn 0.3s ease-in-out forwards` : 'none',
+            animationDelay: `${(index / privateBits.length) * 2}s`
+          }}
+        >
+          <span className="text-[12px] font-mono text-black">c'<sub>{index}</sub></span>
+          <div className="tooltiptext">
+            <div className="text-sm whitespace-nowrap">
+              <div>Bit {index + 1}:</div>
+              <div>Value: {bit.value}</div>
+              <div>Sampled via: {bit.sampledVia}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }, [privateBits, isCommitting]);
+
+  const handleCommitPrivateBits = useCallback(() => {
+    if (isCommitting || privateBits.length === 0) return;
+    setIsCommitting(true);
+
+    // Mark all bits as committed
+    setPrivateBits(prev => 
+      prev.map(bit => ({ ...bit, committed: true }))
+    );
+    
+    // Set a timeout to complete the step after animations
+    setTimeout(() => {
+      setIsCommitting(false);
+      handleStepComplete('prove-binary');
+    }, 2000);
+  }, [isCommitting, privateBits, handleStepComplete]);
 
   const formatFileSize = (bytes: number): string => {
     if (bytes === 0) return '0 Bytes';
@@ -363,53 +420,151 @@ export default function GameScreen({ onBack }: GameScreenProps) {
     return Math.ceil(Math.pow(10 / epsilon, 2) * Math.log(2 / delta));
   };
 
+  // Add event listeners for mouse up outside the grid
+  useEffect(() => {
+    const handleGlobalMouseUp = () => {
+      setIsDragging(false);
+      setLastDraggedIndex(null);
+    };
+
+    window.addEventListener('mouseup', handleGlobalMouseUp);
+    return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
+  }, []);
+
+  const handleBitMouseDown = useCallback((index: number) => {
+    setIsDragging(true);
+    setLastDraggedIndex(index);
+    // Toggle the bit value
+    setPrivateBits(prev => {
+      const newBits = [...prev];
+      newBits[index] = {
+        ...newBits[index],
+        value: newBits[index].value === 1 ? 0 : 1
+      };
+      return newBits;
+    });
+  }, []);
+
+  const handleBitMouseEnter = useCallback((index: number) => {
+    if (isDragging && lastDraggedIndex !== null) {
+      // Toggle all bits between lastDraggedIndex and current index
+      setPrivateBits(prev => {
+        const newBits = [...prev];
+        const start = Math.min(lastDraggedIndex, index);
+        const end = Math.max(lastDraggedIndex, index);
+        for (let i = start; i <= end; i++) {
+          newBits[i] = {
+            ...newBits[i],
+            value: newBits[lastDraggedIndex].value
+          };
+        }
+        return newBits;
+      });
+    }
+  }, [isDragging, lastDraggedIndex]);
+
+  const handleBitMouseUp = useCallback(() => {
+    setIsDragging(false);
+    setLastDraggedIndex(null);
+  }, []);
+
   const PrivateBitsGrid = useCallback(() => {
     if (privateBits.length === 0) return null;
 
     return (
-      <div className="w-full flex justify-center mt-4">
-        <div className="w-[600px] border rounded-lg shadow-sm bg-white p-4">
-          <div className="grid grid-cols-100 gap-1">
-            {privateBits.map((bit, index) => (
-              <div
-                key={index}
-                className="aspect-square bg-blue-500 text-white flex items-center justify-center tooltip"
-              >
-                <span className="text-[8px] font-mono">+{bit.value}</span>
-                <div className="tooltiptext">
-                  <div className="text-sm whitespace-nowrap">
-                    <div>Bit {index + 1}:</div>
-                    <div>Value: {bit.value}</div>
-                    <div>Sampled via: {bit.sampledVia}</div>
+      <div className="w-full flex flex-col items-center gap-4 mt-4">
+        <div className="w-[1200px] border rounded-lg shadow-sm bg-white p-4">
+          {privateBits[0]?.sampledVia === 'manual' ? (
+            <div className="grid grid-cols-[repeat(100,minmax(0,1fr))] gap-0">
+              {privateBits.map((bit, index) => (
+                <div
+                  key={index}
+                  className={`aspect-square text-white flex items-center justify-center tooltip cursor-pointer ${
+                    bit.value === 1 ? 'bg-blue-700' : 'bg-blue-500'
+                  }`}
+                  style={{ minWidth: '20px', minHeight: '20px' }}
+                  onMouseDown={() => handleBitMouseDown(index)}
+                  onMouseEnter={() => handleBitMouseEnter(index)}
+                  onMouseUp={handleBitMouseUp}
+                >
+                  <span className={`text-[8px] font-mono ${bit.value === 1 ? 'text-white' : 'text-blue-700'}`}>{bit.value}</span>
+                  <div className="tooltiptext">
+                    <div className="text-sm whitespace-nowrap">
+                      <div>Bit {index + 1}:</div>
+                      <div>Value: {bit.value}</div>
+                      <div>Sampled via: {bit.sampledVia}</div>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-[repeat(100,minmax(0,1fr))] gap-0">
+              {privateBits.map((bit, index) => (
+                <div
+                  key={index}
+                  className={`aspect-square text-white flex items-center justify-center tooltip ${
+                    bit.value === 1 ? 'bg-blue-700' : 'bg-blue-500'
+                  }`}
+                  style={{ minWidth: '20px', minHeight: '20px' }}
+                >
+                  <span className={`text-[8px] font-mono ${bit.value === 1 ? 'text-white' : 'text-blue-700'}`}>{bit.value}</span>
+                  <div className="tooltiptext">
+                    <div className="text-sm whitespace-nowrap">
+                      <div>Bit {index + 1}:</div>
+                      <div>Value: {bit.value}</div>
+                      <div>Sampled via: {bit.sampledVia}</div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     );
-  }, [privateBits]);
+  }, [privateBits, isDragging, lastDraggedIndex, handleBitMouseDown, handleBitMouseEnter, handleBitMouseUp]);
 
   const handleUniformSample = () => {
     const n_b = calculateNB(epsilon);
     const newBits = Array(n_b).fill(0).map(() => ({
       value: Math.random() < 0.5 ? 1 : 0,
-      sampledVia: 'uniform' as const
+      sampledVia: 'uniform' as const,
+      committed: false
     }));
     setPrivateBits(newBits);
-    handleStepComplete('commit-bits');
+    setSamplingMethod('uniform');
   };
 
   const handleManualSet = () => {
     const n_b = calculateNB(epsilon);
     const newBits = Array(n_b).fill(0).map(() => ({
       value: 0,
-      sampledVia: 'manual' as const
+      sampledVia: 'manual' as const,
+      committed: false
     }));
     setPrivateBits(newBits);
-    // TODO: Implement manual bit setting interface
-    alert('Manual bit setting interface would go here');
+    setSamplingMethod('manual');
+  };
+
+  const handleProbabilitySet = () => {
+    const n_b = calculateNB(epsilon);
+    const newBits = Array(n_b).fill(0).map(() => ({
+      value: Math.random() < probability ? 1 : 0,
+      sampledVia: 'manual probability' as const,
+      committed: false
+    }));
+    setPrivateBits(newBits);
+    setSamplingMethod('probability');
+  };
+
+  const handleConfirmPrivateBits = () => {
+    handleStepComplete('commit-bits');
+  };
+
+  const resetSamplingMethod = () => {
+    setSamplingMethod(null);
+    setPrivateBits([]);
   };
 
   return (
@@ -631,7 +786,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
                     <Button
                       onClick={processSelectedColumn}
                       className="w-full"
-                      disabled={!selectedColumn}
+                      disabled={!selectedColumn || step !== 'input'}
                     >
                       Process Selected Column
                     </Button>
@@ -684,7 +839,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
                 <div className="w-full flex justify-center">
                   <Button 
                     onClick={handleCommitInputs}
-                    disabled={!isStepEnabled('commit-inputs') || clients.length === 0 || isCommitting}
+                    disabled={!isStepEnabled('commit-inputs') || clients.length === 0 || isCommitting || step !== 'commit-inputs'}
                     className="w-1/2 py-6 text-lg"
                   >
                     {isCommitting ? 'Committing...' : 'Commit Inputs'}
@@ -694,6 +849,9 @@ export default function GameScreen({ onBack }: GameScreenProps) {
             </div>
             <div className={`p-8 text-center border rounded transition-all relative w-full flex flex-col justify-between min-h-[200px] ${getStepStyle('set-epsilon')}`}>
               <StepHeader step="set-epsilon" title="Step 3: Set Privacy Parameters" />
+              <div className="text-sm text-gray-600 mb-4">
+                Formula: n_b = (10/ε)² × ln(2/δ)
+              </div>
               <div className="flex flex-col items-center gap-5 w-full my-5">
                 <div className="flex items-center gap-4">
                   <div className="flex flex-col items-center gap-2">
@@ -718,13 +876,13 @@ export default function GameScreen({ onBack }: GameScreenProps) {
                     <label className="text-sm text-gray-600">Delta (δ)</label>
                     <input 
                       type="number" 
-                      min="0.01" 
-                      max="0.5" 
-                      step="0.01" 
+                      min="0" 
+                      max="1" 
+                      step="0.001" 
                       value={delta} 
                       onChange={(e) => {
                         const value = parseFloat(e.target.value);
-                        if (!isNaN(value) && value >= 0.01 && value <= 0.5) {
+                        if (!isNaN(value) && value >= 0 && value <= 1) {
                           setDelta(value);
                         }
                       }}
@@ -733,10 +891,20 @@ export default function GameScreen({ onBack }: GameScreenProps) {
                     <span className="text-xl font-bold text-blue-500 px-4 py-1 bg-blue-50 rounded">δ = {delta}</span>
                   </div>
                 </div>
+                {isStepCompleted('set-epsilon') && (
+                  <div className="mt-4 p-4 bg-blue-50 rounded-lg">
+                    <div className="text-lg font-semibold text-blue-700">
+                      Calculated n_b = {calculateNB(epsilon).toLocaleString()}
+                    </div>
+                    <div className="text-sm text-gray-600 mt-1">
+                      This is the number of private random bits that will be sampled in the next step
+                    </div>
+                  </div>
+                )}
               </div>
               <Button 
                 onClick={() => handleStepComplete('sample-bits')}
-                disabled={!isStepEnabled('set-epsilon') || !isStepCompleted('commit-inputs')}
+                disabled={!isStepEnabled('set-epsilon') || !isStepCompleted('commit-inputs') || step !== 'set-epsilon'}
               >
                 Confirm Privacy Parameters
               </Button>
@@ -747,43 +915,120 @@ export default function GameScreen({ onBack }: GameScreenProps) {
                 <div className="grid grid-cols-3 gap-4 w-full max-w-2xl mx-auto">
                   <Button 
                     onClick={handleUniformSample}
-                    disabled={!isStepEnabled('sample-bits') || !isStepCompleted('set-epsilon')}
-                    className="w-full py-4"
+                    disabled={!isStepEnabled('sample-bits') || !isStepCompleted('set-epsilon') || step !== 'sample-bits' || samplingMethod !== null}
+                    className={`w-full py-4 ${samplingMethod === 'uniform' ? 'bg-black' : ''}`}
                   >
                     Uniformly Sample Private Bits
                   </Button>
                   <Button 
                     onClick={handleManualSet}
-                    disabled={!isStepEnabled('sample-bits') || !isStepCompleted('set-epsilon')}
-                    className="w-full py-4 bg-red-500 hover:bg-red-600"
+                    disabled={!isStepEnabled('sample-bits') || !isStepCompleted('set-epsilon') || step !== 'sample-bits' || samplingMethod !== null}
+                    className={`w-full py-4 bg-red-500 hover:bg-red-600 ${samplingMethod === 'manual' ? 'bg-red-500 hover:bg-red-600' : ''}`}
                   >
                     Manually Set Private Bits
                   </Button>
                   <Button 
-                    onClick={handleManualSet}
-                    disabled={!isStepEnabled('sample-bits') || !isStepCompleted('set-epsilon')}
-                    className="w-full py-4 bg-red-500 hover:bg-red-600"
+                    onClick={handleProbabilitySet}
+                    disabled={!isStepEnabled('sample-bits') || !isStepCompleted('set-epsilon') || step !== 'sample-bits' || samplingMethod !== null}
+                    className={`w-full py-4 bg-red-500 hover:bg-red-600 ${samplingMethod === 'probability' ? 'bg-red-500 hover:bg-red-600' : ''}`}
                   >
-                    Manually Set Probability
+                    Set Probability Distribution
                   </Button>
                 </div>
+                {samplingMethod && (
+                  <div className="flex flex-col items-center gap-4 w-full">
+                    <div className="flex justify-center gap-4">
+                      <Button
+                        onClick={resetSamplingMethod}
+                        variant="outline"
+                        className="text-sm"
+                      >
+                        Reset Sampling Method
+                      </Button>
+                      <Button
+                        onClick={handleConfirmPrivateBits}
+                        className="text-sm"
+                        disabled={!privateBits.length}
+                      >
+                        Confirm Private Bits
+                      </Button>
+                    </div>
+                    {samplingMethod === 'manual' && (
+                      <div className="text-gray-600 text-lg">
+                        Click and drag to modify bits
+                      </div>
+                    )}
+                    {samplingMethod === 'probability' && (
+                      <div className="flex flex-col items-center gap-4 w-full max-w-md">
+                        <div className="w-full">
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Probability of 1: {probability.toFixed(2)}
+                          </label>
+                          <input
+                            type="range"
+                            min="0"
+                            max="1"
+                            step="0.01"
+                            value={probability}
+                            onChange={(e) => {
+                              setProbability(parseFloat(e.target.value));
+                              const n_b = calculateNB(epsilon);
+                              const newBits = Array(n_b).fill(0).map(() => ({
+                                value: Math.random() < parseFloat(e.target.value) ? 1 : 0,
+                                sampledVia: 'manual probability' as const,
+                                committed: false
+                              }));
+                              setPrivateBits(newBits);
+                            }}
+                            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <PrivateBitsGrid />
               </div>
             </div>
             <div className={`p-8 text-center border rounded transition-all relative w-full flex flex-col justify-between min-h-[200px] ${getStepStyle('commit-bits')}`}>
               <StepHeader step="commit-bits" title="Step 5: Commit Private Bits" />
-              <Button 
-                onClick={() => handleStepComplete('prove-binary')}
-                disabled={!isStepEnabled('commit-bits') || !isStepCompleted('sample-bits')}
-              >
-                Commit Bits
-              </Button>
+              <div className="flex flex-col items-center gap-4">
+                {isCommitting ? <p className="m-0 mb-5 text-gray-600 text-lg">Committing all private bits...</p> : null}
+                <div className="w-full mb-4">
+                  {privateBits.length > 0 && (
+                    <div className="w-full flex justify-center">
+                      <div className="w-[600px] h-[600px] overflow-y-auto border rounded-lg shadow-sm bg-white">
+                        <Grid
+                          className="pedersen-grid-container"
+                          columnCount={50}
+                          columnWidth={30}
+                          rowCount={Math.ceil(privateBits.length / 50)}
+                          rowHeight={30}
+                          width={600}
+                          height={600}
+                        >
+                          {PrivateBitsCell}
+                        </Grid>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div className="w-full flex justify-center">
+                  <Button 
+                    onClick={handleCommitPrivateBits}
+                    disabled={!isStepEnabled('commit-bits') || privateBits.length === 0 || isCommitting || step !== 'commit-bits'}
+                    className="w-1/2 py-6 text-lg"
+                  >
+                    {isCommitting ? 'Committing...' : 'Commit Private Bits'}
+                  </Button>
+                </div>
+              </div>
             </div>
             <div className={`p-8 text-center border rounded transition-all relative w-full flex flex-col justify-between min-h-[200px] ${getStepStyle('prove-binary')}`}>
               <StepHeader step="prove-binary" title="Step 6: Prove Binary Values" />
               <Button 
                 onClick={() => handleStepComplete('morra')}
-                disabled={!isStepEnabled('prove-binary') || !isStepCompleted('commit-bits')}
+                disabled={!isStepEnabled('prove-binary') || !isStepCompleted('commit-bits') || step !== 'prove-binary'}
               >
                 Generate Sigma-OR Proof
               </Button>
@@ -794,7 +1039,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
                 <p>Play Morra to generate public bits</p>
                 <Button 
                   onClick={() => handleStepComplete('xor-bits')}
-                  disabled={!isStepEnabled('morra') || !isStepCompleted('prove-binary')}
+                  disabled={!isStepEnabled('morra') || !isStepCompleted('prove-binary') || step !== 'morra'}
                 >
                   Play Morra
                 </Button>
@@ -804,7 +1049,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
               <StepHeader step="xor-bits" title="Step 8: XOR Private & Public Bits" />
               <Button 
                 onClick={() => handleStepComplete('compute-sum')}
-                disabled={!isStepEnabled('xor-bits') || !isStepCompleted('morra')}
+                disabled={!isStepEnabled('xor-bits') || !isStepCompleted('morra') || step !== 'xor-bits'}
               >
                 Compute XOR
               </Button>
@@ -813,7 +1058,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
               <StepHeader step="compute-sum" title="Step 9: Compute Sum" />
               <Button 
                 onClick={() => handleStepComplete('compute-z')}
-                disabled={!isStepEnabled('compute-sum') || !isStepCompleted('xor-bits')}
+                disabled={!isStepEnabled('compute-sum') || !isStepCompleted('xor-bits') || step !== 'compute-sum'}
               >
                 Compute y
               </Button>
@@ -822,7 +1067,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
               <StepHeader step="compute-z" title="Step 10: Compute z" />
               <Button 
                 onClick={() => handleStepComplete('commit-pedersen')}
-                disabled={!isStepEnabled('compute-z') || !isStepCompleted('compute-sum')}
+                disabled={!isStepEnabled('compute-z') || !isStepCompleted('compute-sum') || step !== 'compute-z'}
               >
                 Compute z
               </Button>
@@ -831,7 +1076,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
               <StepHeader step="commit-pedersen" title="Step 11: Commit Pedersen" />
               <Button 
                 onClick={() => handleStepComplete('release-proofs')}
-                disabled={!isStepEnabled('commit-pedersen') || !isStepCompleted('compute-z')}
+                disabled={!isStepEnabled('commit-pedersen') || !isStepCompleted('compute-z') || step !== 'commit-pedersen'}
               >
                 Commit Com(y,z)
               </Button>
@@ -840,7 +1085,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
               <StepHeader step="release-proofs" title="Step 12: Release Proofs" />
               <Button 
                 onClick={() => handleStepComplete('verify')}
-                disabled={!isStepEnabled('release-proofs') || !isStepCompleted('commit-pedersen')}
+                disabled={!isStepEnabled('release-proofs') || !isStepCompleted('commit-pedersen') || step !== 'release-proofs'}
               >
                 Release All Proofs
               </Button>
@@ -851,7 +1096,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
                 <p>Verifier checking all commitments and proofs...</p>
                 <Button 
                   onClick={verifyProof}
-                  disabled={!isStepEnabled('verify') || !isStepCompleted('release-proofs')}
+                  disabled={!isStepEnabled('verify') || !isStepCompleted('release-proofs') || step !== 'verify'}
                 >
                   Complete Verification
                 </Button>
