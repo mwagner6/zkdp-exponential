@@ -154,7 +154,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
       case 'commit-inputs':
         return "The curator commits to the raw inputs using a Pedersen commitment scheme. This creates a binding but hiding commitment that can be verified later without revealing the actual input.";
       case 'set-epsilon':
-        return "The privacy parameter ε is set, which controls the level of differential privacy. A smaller ε provides stronger privacy guarantees but may reduce accuracy.";
+        return "The privacy parameters ε (epsilon) and δ (delta) are set to control the level of differential privacy. Epsilon (ε) determines the privacy budget - a smaller ε provides stronger privacy guarantees but may reduce accuracy. Delta (δ) represents the probability of privacy failure - a smaller δ means a lower chance of privacy violation. Together, (ε,δ)-differential privacy provides a rigorous mathematical guarantee that the presence or absence of any individual's data will not significantly affect the output of the computation.";
       case 'sample-bits':
         return "n_b (determined by epsilon) private random bits are sampled. These bits will be used to add DP-noise to the computation.";
       case 'commit-bits':
@@ -251,7 +251,12 @@ export default function GameScreen({ onBack }: GameScreenProps) {
             animationDelay: `${commit.animationDelay}s`
           }}
         >
-          <span className="text-[12px] font-mono text-black">c<sub>{index}</sub></span>
+          <span className="text-[12px] font-mono text-black">
+            <span style={{ position: 'relative', display: 'inline-block' }}>
+              c
+              <span style={{ position: 'absolute', bottom: '-0.5em', left: '0.5em', fontSize: '0.7em' }}>{index}</span>
+            </span>
+          </span>
           <div className="tooltiptext">
             <div className="text-sm whitespace-nowrap">
               <div>Client {index + 1}:</div>
@@ -275,13 +280,14 @@ export default function GameScreen({ onBack }: GameScreenProps) {
 
     const bit = privateBits[index];
     const isCommitted = bit.committed;
+    const r = Math.floor(Math.random() * 1000000); // Random number for Pedersen commitment
 
     return (
       <div style={style}>
         <div
           className={`w-full h-full transition-all duration-300 relative flex items-center justify-center tooltip ${
             !isCommitted ? 'bg-gray-200 opacity-0' :
-            isCommitting ? 'bg-blue-400 animate-pulse' :
+            isCommitting ? 'bg-gray-400 animate-pulse' :
             'bg-green-500'
           }`}
           style={{
@@ -289,12 +295,24 @@ export default function GameScreen({ onBack }: GameScreenProps) {
             animationDelay: `${(index / privateBits.length) * 2}s`
           }}
         >
-          <span className="text-[12px] font-mono text-black">c'<sub>{index}</sub></span>
+          <span className="text-[12px] font-mono text-black">
+            <span style={{ position: 'relative', display: 'inline-block' }}>
+              c
+              <span style={{ position: 'absolute', top: '-0.5em', left: '0.5em', fontSize: '0.7em' }}>'</span>
+              <span style={{ position: 'absolute', bottom: '-0.5em', left: '0.5em', fontSize: '0.7em' }}>{index}</span>
+            </span>
+          </span>
           <div className="tooltiptext">
             <div className="text-sm whitespace-nowrap">
               <div>Bit {index + 1}:</div>
               <div>Value: {bit.value}</div>
               <div>Sampled via: {bit.sampledVia}</div>
+              {isCommitted && (
+                <>
+                  <div>Random r: {r}</div>
+                  <div>Commitment: g<sup>{bit.value}</sup>h<sup>{r}</sup></div>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -850,7 +868,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
             <div className={`p-8 text-center border rounded transition-all relative w-full flex flex-col justify-between min-h-[200px] ${getStepStyle('set-epsilon')}`}>
               <StepHeader step="set-epsilon" title="Step 3: Set Privacy Parameters" />
               <div className="text-sm text-gray-600 mb-4">
-                Formula: n_b = (10/ε)² × ln(2/δ)
+                Formula: n<sub>b</sub> = (10/ε)² × ln(2/δ)
               </div>
               <div className="flex flex-col items-center gap-5 w-full my-5">
                 <div className="flex items-center gap-4">
@@ -894,7 +912,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
                 {isStepCompleted('set-epsilon') && (
                   <div className="mt-4 p-4 bg-blue-50 rounded-lg">
                     <div className="text-lg font-semibold text-blue-700">
-                      Calculated n_b = {calculateNB(epsilon).toLocaleString()}
+                      Calculated n<sub>b</sub> = {calculateNB(epsilon).toLocaleString()}
                     </div>
                     <div className="text-sm text-gray-600 mt-1">
                       This is the number of private random bits that will be sampled in the next step
@@ -1026,12 +1044,67 @@ export default function GameScreen({ onBack }: GameScreenProps) {
             </div>
             <div className={`p-8 text-center border rounded transition-all relative w-full flex flex-col justify-between min-h-[200px] ${getStepStyle('prove-binary')}`}>
               <StepHeader step="prove-binary" title="Step 6: Prove Binary Values" />
-              <Button 
-                onClick={() => handleStepComplete('morra')}
-                disabled={!isStepEnabled('prove-binary') || !isStepCompleted('commit-bits') || step !== 'prove-binary'}
-              >
-                Generate Sigma-OR Proof
-              </Button>
+              <div className="flex flex-col items-center gap-4">
+                <div className="w-full flex justify-center">
+                  <Button 
+                    onClick={() => handleStepComplete('morra')}
+                    disabled={!isStepEnabled('prove-binary') || !isStepCompleted('commit-bits') || step !== 'prove-binary'}
+                    className="w-1/2 py-6 text-lg"
+                  >
+                    Generate Sigma-OR Proof
+                  </Button>
+                </div>
+                {isStepCompleted('prove-binary') && (
+                  <div className="w-full mb-4">
+                    <div className="w-full flex justify-center">
+                      <div className="w-[600px] h-[600px] overflow-y-auto border rounded-lg shadow-sm bg-white">
+                        <Grid
+                          className="pedersen-grid-container"
+                          columnCount={50}
+                          columnWidth={30}
+                          rowCount={Math.ceil(privateBits.length / 50)}
+                          rowHeight={30}
+                          width={600}
+                          height={600}
+                        >
+                          {({ columnIndex, rowIndex, style }) => {
+                            const numCols = 50;
+                            const index = rowIndex * numCols + columnIndex;
+                            if (index >= privateBits.length) return null;
+                            const bit = privateBits[index];
+                            return (
+                              <div key={index} style={style}>
+                                <div
+                                  className="w-full h-full transition-all duration-300 relative flex items-center justify-center tooltip bg-green-500"
+                                  style={{
+                                    animation: `fadeIn 0.3s ease-in-out forwards`,
+                                    animationDelay: `${(index / privateBits.length) * 2}s`
+                                  }}
+                                >
+                                  <span className="text-[12px] font-mono text-white">
+                                    1
+                                  </span>
+                                  <div className="tooltiptext">
+                                    <div className="text-sm whitespace-nowrap">
+                                      <div>Bit {index + 1}:</div>
+                                      <div>Value: {bit.value}</div>
+                                      <div>Proof: Valid</div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          }}
+                        </Grid>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <div className="mt-4 p-4 bg-blue-50 rounded-lg text-sm text-gray-600">
+                  <p className="mb-2">Zero Knowledge OR Opening: Given a commitment 𝑐𝑥, the committing party can prove to a polynomial time verifier that 𝑐𝑥 is a commitment to either 1 or 0 without revealing which one it is.</p>
+                  <p>The verifier and the client use the oracle OOR to check if the client's input is indeed a commitment to a bit. For input 𝑥𝑖, the verifier (and provers) sends to OOR the derived commitment 𝑐𝑖 and the client sends the openings (𝑥𝑖, Σ𝑟𝑖,𝑘). The oracle responds with OOR(𝑐𝑖) = 1 if 𝑥𝑖 ∈ {0, 1} and 𝑐𝑖 is a commitment to 𝑥𝑖.</p>
+                </div>
+              </div>
             </div>
             <div className={`p-8 text-center border rounded transition-all relative w-full flex flex-col justify-between min-h-[200px] ${getStepStyle('morra')}`}>
               <StepHeader step="morra" title="Step 7: Play Morra" />
