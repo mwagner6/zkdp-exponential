@@ -1,0 +1,13 @@
+{
+    "compilerOptions": {
+      "target": "ES2017", // Or a target that supports async/await
+      "module": "NodeNext", // Or "ES2020", "ES2022", etc.
+      "moduleResolution": "NodeNext", // Or "Node16"
+      "esModuleInterop": true, // Important for compatibility
+      "forceConsistentCasingInFileNames": true,
+      "strict": true,
+      // ... other options
+      "lib": ["es2017", "dom"]  // Make sure to include the necessary libraries
+    },
+    // ... other options
+  }

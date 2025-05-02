@@ -1,4 +1,3 @@
-use wasm_bindgen::prelude::*;
 use curve25519_dalek::{constants, ristretto::RistrettoPoint, scalar::Scalar};
 use crate::participants;
 use crate::generic_commitments::Commitment;
@@ -7,7 +6,6 @@ use num_bigint::BigUint;
 
 use rand_core::OsRng;
 
-#[wasm_bindgen]
 pub struct BinomialRunner {
     h: RistrettoPoint,
     g: RistrettoPoint,
@@ -30,14 +28,13 @@ pub struct BinomialRunner {
     final_z: Scalar,
     lhs: RistrettoPoint,
     rhs: RistrettoPoint,
+    result_output: Scalar,
 }
 
-#[wasm_bindgen]
 impl BinomialRunner {
 
     // <===== Step 1 =====>
     // Initialization function. Takes in number of bits, and raw x_i bits. Chooses h and j arbitrarily. 
-    #[wasm_bindgen(constructor)]
     pub fn new(n: i32, x: &[u8]) -> BinomialRunner {
         let h: RistrettoPoint = RistrettoPoint::from_uniform_bytes(b"this is another secret that should never be disclosed to anyone ");
         let g: RistrettoPoint = constants::RISTRETTO_BASEPOINT_POINT;
@@ -51,6 +48,9 @@ impl BinomialRunner {
                 }
             }
         ).collect();
+        for x in &x_new {
+            println!("{}", BigUint::from_bytes_le(&x.to_bytes()));
+        }
         let r: Vec<Scalar> = vec![0; x_new.len()].iter().map(
             |_| {
                 let mut csprng = OsRng;
@@ -96,15 +96,16 @@ impl BinomialRunner {
             final_x: Scalar::zero(),
             final_z: Scalar::zero(),
             lhs: RistrettoPoint::default(),
-            rhs: RistrettoPoint::default()
+            rhs: RistrettoPoint::default(),
+            result_output: Scalar::zero()
         }
     }
 
     // <===== Step 2 =====> 
     // Returns Pederson commitments for each x_i
-    pub fn get_x_commits(self) -> Vec<JsValue> {
+    pub fn get_x_commits(&self) -> Vec<String> {
         self.input_commitments.iter().map(
-            |c| JsValue::from_str(&BigUint::from_bytes_be(&c.compress().to_bytes()).to_str_radix(10))
+            |c| BigUint::from_bytes_le(&c.compress().to_bytes()).to_str_radix(10)
         ).collect()
     }
 
@@ -113,7 +114,7 @@ impl BinomialRunner {
 
     // <===== Step 4 =====>
     // Take in random private bits from JS, with cheating, and save them
-    pub fn input_randomness(mut self, bits: &[u8]) {
+    pub fn input_randomness(&mut self, bits: &[u8]) {
         let private_bits_new: Vec<Scalar> = bits.iter().map(
             |x| match *x {
                 1 => {
@@ -155,7 +156,7 @@ impl BinomialRunner {
 
     // <===== Step 7 =====>
     // Morra flips. Already has taken place. Can return sampled randomness
-    pub fn get_public_random(self) -> Vec<u8> {
+    pub fn get_public_random(&self) -> Vec<u8> {
         self.public_bits.iter().map(
             |b| if *b == Scalar::one() {
                 1
@@ -167,7 +168,7 @@ impl BinomialRunner {
 
     // <===== Step 8 =====>
     // XOR Private and public bits. This is done, so this call will return XORed bits and their commits
-    pub fn get_xor_bits(self) -> Vec<u8> {
+    pub fn get_xor_bits(&self) -> Vec<u8> {
         self.xor_bits.iter().map(
             |b| if *b == Scalar::one() {
                 1
@@ -177,35 +178,36 @@ impl BinomialRunner {
         ).collect()
     }
 
-    pub fn get_xor_commits(self) -> Vec<JsValue> {
+    pub fn get_xor_commits(&self) -> Vec<String> {
         self.xor_commits.iter().map(
-            |c| JsValue::from_str(&BigUint::from_bytes_be(&c.compress().to_bytes()).to_str_radix(10))
+            |c| BigUint::from_bytes_le(&c.compress().to_bytes()).to_str_radix(10)
         ).collect()
     }
 
     // <===== Step 9 =====>
     // Compute sum (output result). 
-    pub fn compute_sum(mut self) -> u64 {
-        let v_sum: Scalar = self.private_bits.iter().sum();
+    pub fn compute_sum(&mut self) -> u64 {
+        let v_sum: Scalar = self.public_bits.iter().sum();
         let s_sum: Scalar = self.xor_bits.iter().sum();
         let x = self.x_sum + v_sum;
         let z = self.r_sum + s_sum;
+        self.result_output = self.x_sum + s_sum;
         self.final_x = x;
         self.final_z = z;
 
-        BigUint::from_bytes_be(&self.final_x.to_bytes()).to_u64_digits()[0]
+        BigUint::from_bytes_le(&self.result_output.to_bytes()).to_u64_digits()[0]
     }
 
     // <===== Step 10 =====>
     // Returns Z
-    pub fn get_z(self) -> JsValue {
-        JsValue::from_str(&BigUint::from_bytes_be(&self.final_z.to_bytes()).to_str_radix(10))
+    pub fn get_z(&self) -> String {
+        BigUint::from_bytes_le(&self.final_z.to_bytes()).to_str_radix(10)
     }
 
     // <===== Step 11 =====>
     // Commits final sum with total final randomness, and computes sum of previous commitments
     // Returns final lhs and rhs
-    pub fn commit_pedersons(mut self) {
+    pub fn commit_pedersons(&mut self) {
         let lhs = self.client.com.commit(self.final_x, self.final_z);
         let v_coms_sum: RistrettoPoint = self.xor_commits.iter().sum();
         let rhs = self.coms_sum + v_coms_sum;
@@ -213,11 +215,11 @@ impl BinomialRunner {
         self.rhs = rhs;
     }
 
-    pub fn get_lhs(self) -> JsValue {
-        JsValue::from_str(&BigUint::from_bytes_be(&self.lhs.compress().to_bytes()).to_str_radix(10))
+    pub fn get_lhs(&self) -> String {
+        BigUint::from_bytes_le(&self.lhs.compress().to_bytes()).to_str_radix(10)
     }
 
-    pub fn get_rhs(self) -> JsValue {
-        JsValue::from_str(&BigUint::from_bytes_be(&self.rhs.compress().to_bytes()).to_str_radix(10))
+    pub fn get_rhs(&self) -> String {
+        BigUint::from_bytes_le(&self.rhs.compress().to_bytes()).to_str_radix(10)
     }
 }
