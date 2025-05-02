@@ -72,26 +72,6 @@ h1 {
   font-size: 2.5rem;
 }
 
-.explanation {
-  font-size: 1.2rem;
-  line-height: 1.8;
-  color: #444;
-}
-
-.explanation p {
-  margin-bottom: 1.5rem;
-}
-
-.explanation ul, .explanation ol {
-  margin: 1.5rem 0;
-  padding-left: 2rem;
-}
-
-.explanation li {
-  margin-bottom: 1rem;
-  position: relative;
-}
-
 .nav-button {
   background: none;
   border: none;

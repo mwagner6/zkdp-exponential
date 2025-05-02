@@ -17,12 +17,12 @@ function App() {
       content: <ZeroKnowledgePage />
     },
     {
-      title: "Sigma-OR Protocol",
-      content: <SigmaProtocolPage />
-    },
-    {
       title: "Differential Privacy",
       content: <DPPage />
+    },
+    {
+      title: "Sigma-OR Protocol",
+      content: <SigmaProtocolPage />
     },
     {
       title: "Interactive Demo",

@@ -3,6 +3,7 @@ import { FixedSizeGrid as Grid } from 'react-window';
 import GameNavbar from '../navigation/GameNavbar';
 import { Button } from '../ui/button';
 import { useCSVReader } from 'react-papaparse';
+import MorraAnimation from '../morra/MorraAnimation';
 
 interface GameScreenProps {
   onBack: () => void;
@@ -49,6 +50,22 @@ interface PrivateBit {
   committed: boolean;
 }
 
+interface PublicBit { // Interface for public bits
+  value: number;
+}
+
+interface NoiseBit { // Interface for noise bits (optional, could reuse PublicBit)
+  value: number;
+}
+
+// Add state for Step 9: Compute Sum
+interface CalculationIntermediateValues {
+  sumNoise?: number;
+  nbOver2?: number;
+  noiseVal?: number;
+  originalNoisySumY?: number; // Store the pre-rounded value
+}
+
 export default function GameScreen({ onBack }: GameScreenProps) {
   const [clients, setClients] = useState<ClientInput[]>([]);
   const [epsilon, setEpsilon] = useState<number>(1);
@@ -58,6 +75,8 @@ export default function GameScreen({ onBack }: GameScreenProps) {
   const [isCommitting, setIsCommitting] = useState<boolean>(false);
   const [pedersenCommitments, setPedersenCommitments] = useState<PedersenCommitment[]>([]);
   const [privateBits, setPrivateBits] = useState<PrivateBit[]>([]);
+  const [publicBits, setPublicBits] = useState<PublicBit[]>([]);
+  const [noiseBits, setNoiseBits] = useState<NoiseBit[]>([]);
   const [step, setStep] = useState<
     'input' | 
     'commit-inputs' | 
@@ -85,6 +104,15 @@ export default function GameScreen({ onBack }: GameScreenProps) {
   const [parseError, setParseError] = useState<string | null>(null);
   const [samplingMethod, setSamplingMethod] = useState<'uniform' | 'manual' | 'probability' | null>(null);
   const [probability, setProbability] = useState<number>(0.5);
+  const [isMorraPlaying, setIsMorraPlaying] = useState<boolean>(false);
+  const [morraAnimationCompleted, setMorraAnimationCompleted] = useState<boolean>(false);
+  const [xorCompleted, setXorCompleted] = useState<boolean>(false);
+  const [uniformityConfidenceInterval, setUniformityConfidenceInterval] = useState<string | null>(null);
+
+  // State for Step 9: Compute Sum (y)
+  const [noisySumY, setNoisySumY] = useState<number | null>(null);
+  const [calculationProgress, setCalculationProgress] = useState<number>(0); // 0: idle, 1: calculating, 2: done
+  const [intermediateValues, setIntermediateValues] = useState<CalculationIntermediateValues>({});
 
   const isStepCompleted = (stepName: string) => {
     return completedSteps.has(stepName);
@@ -218,7 +246,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
       );
       setIsCommitting(false);
       handleStepComplete('set-epsilon');
-    }, 2000);
+    }, 1000);
   }, [isCommitting, clients, handleStepComplete]);
 
   // Generate and verify the proof
@@ -333,7 +361,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
     setTimeout(() => {
       setIsCommitting(false);
       handleStepComplete('prove-binary');
-    }, 2000);
+    }, 1000);
   }, [isCommitting, privateBits, handleStepComplete]);
 
   const formatFileSize = (bytes: number): string => {
@@ -585,6 +613,170 @@ export default function GameScreen({ onBack }: GameScreenProps) {
     setPrivateBits([]);
   };
 
+  const handlePlayMorra = () => {
+    setIsMorraPlaying(true);
+    setMorraAnimationCompleted(false);
+  };
+
+  const handleMorraComplete = () => {
+    setMorraAnimationCompleted(true);
+    // Generate n_b public bits when Morra completes
+    const n_b = calculateNB(epsilon);
+    const generatedPublicBits = Array(n_b).fill(0).map(() => ({
+      value: Math.random() < 0.5 ? 1 : 0,
+    }));
+    setPublicBits(generatedPublicBits);
+  };
+
+  // New component for Public Bits Grid
+  const PublicBitsGrid = useCallback(() => {
+    if (publicBits.length === 0) return null;
+
+    const numCols = 100; // Keep consistent with PrivateBitsGrid
+    const gridWidth = 1200; // Keep consistent
+
+    return (
+      <div className="w-full flex flex-col items-center gap-4 mt-4">
+         <h4 className="text-md font-semibold text-gray-700">Generated Public Bits (z<sub>i</sub>) (uniformly random)</h4>
+         <div className={`w-[${gridWidth}px] border rounded-lg shadow-sm bg-white p-4`}>
+          <div className={`grid grid-cols-[repeat(${numCols},minmax(0,1fr))] gap-0`}>
+            {publicBits.map((bit, index) => (
+              <div
+                key={index}
+                className={`aspect-square text-white flex items-center justify-center tooltip ${
+                  bit.value === 1 ? 'bg-green-700' : 'bg-green-500' // Use green theme
+                }`}
+                style={{ minWidth: '20px', minHeight: '20px' }} // Consistent size
+              >
+                <span className={`text-[8px] font-mono ${bit.value === 1 ? 'text-white' : 'text-green-700'}`}>{bit.value}</span>
+                <div className="tooltiptext">
+                  <div className="text-sm whitespace-nowrap">
+                    <div>Public Bit {index + 1}:</div>
+                    <div>Value: {bit.value}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }, [publicBits]);
+
+  const handleComputeXOR = () => {
+    if (privateBits.length === 0 || publicBits.length === 0 || privateBits.length !== publicBits.length) {
+      console.error("Cannot compute XOR: Bit arrays mismatch or empty.");
+      return;
+    }
+    const resultBits = privateBits.map((privateBit, index) => ({
+      value: privateBit.value ^ publicBits[index].value,
+    }));
+    setNoiseBits(resultBits);
+    setXorCompleted(true);
+  };
+
+  // Add useEffect to calculate uniformity confidence interval
+  useEffect(() => {
+    if (xorCompleted && noiseBits.length > 0) {
+      const n = noiseBits.length;
+      const count1 = noiseBits.reduce((sum, bit) => sum + bit.value, 0);
+      const pHat = count1 / n;
+
+      // Check if sample size is large enough for Wald interval approximation
+      // (np >= 5 and n(1-p) >= 5 is a common rule of thumb)
+      if (n > 0 && n * pHat >= 5 && n * (1 - pHat) >= 5) {
+        const z = 1.96; // For 95% confidence
+        const marginOfError = z * Math.sqrt(pHat * (1 - pHat) / n);
+        const lowerBound = Math.max(0, pHat - marginOfError);
+        const upperBound = Math.min(1, pHat + marginOfError);
+        setUniformityConfidenceInterval(`95% CI for proportion of 1s: [${lowerBound.toFixed(3)}, ${upperBound.toFixed(3)}]`);
+      } else if (n > 0) {
+          // If sample size is too small, just report the observed proportion
+          setUniformityConfidenceInterval(`Observed proportion of 1s: ${pHat.toFixed(3)} (Sample size too small for reliable 95% CI)`);
+      } else {
+          setUniformityConfidenceInterval("No noise bits to analyze.");
+      }
+    } else {
+      setUniformityConfidenceInterval(null); // Reset if not completed or no bits
+    }
+  }, [noiseBits, xorCompleted]);
+
+  // Reusable Static Bit Grid Component for Step 8 display
+  const StaticBitGrid = ({ bits, label, colorTheme }: { bits: {value: number}[], label: string, colorTheme: 'blue' | 'green' }) => {
+    if (!bits || bits.length === 0) return null;
+
+    const numCols = 100;
+    const gridWidth = 1200;
+    const bgColor = colorTheme === 'blue'
+      ? (val: number) => (val === 1 ? 'bg-blue-700' : 'bg-blue-500')
+      : (val: number) => (val === 1 ? 'bg-green-700' : 'bg-green-500');
+    const textColor = colorTheme === 'blue'
+      ? (val: number) => (val === 1 ? 'text-white' : 'text-blue-700')
+      : (val: number) => (val === 1 ? 'text-white' : 'text-green-700');
+
+
+    return (
+      <div className="w-full flex flex-col items-center gap-2 mt-4">
+        <h4 className="text-md font-semibold text-gray-700">{label}</h4>
+        <div className={`w-[${gridWidth}px] max-h-[300px] overflow-y-auto border rounded-lg shadow-sm bg-white p-4`}>
+          <div className={`grid grid-cols-[repeat(${numCols},minmax(0,1fr))] gap-0`}>
+            {bits.map((bit, index) => (
+              <div
+                key={index}
+                className={`aspect-square flex items-center justify-center ${bgColor(bit.value)}`}
+                style={{ minWidth: '20px', minHeight: '20px' }}
+              >
+                <span className={`text-[8px] font-mono ${textColor(bit.value)}`}>{bit.value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Handler for Step 9: Compute Sum (y)
+  const handleComputeSumY = () => {
+    if (calculationProgress !== 0 || noiseBits.length === 0) return;
+
+    setCalculationProgress(1);
+    setNoisySumY(null);
+    setIntermediateValues({});
+
+    // Simulate calculation steps with delays for animation
+    setTimeout(() => {
+      // Step 9.1: Sum of Noise Bits
+      const sumNoise = noiseBits.reduce((sum, bit) => sum + bit.value, 0);
+      setIntermediateValues(prev => ({ ...prev, sumNoise }));
+      
+      setTimeout(() => {
+        // Step 9.2: Calculate n_b / 2
+        const n_b = calculateNB(epsilon);
+        const nbOver2 = n_b / 2;
+        setIntermediateValues(prev => ({ ...prev, nbOver2 }));
+
+        setTimeout(() => {
+          // Step 9.3: Calculate Noise Value
+          const noiseVal = sumNoise - nbOver2;
+          setIntermediateValues(prev => ({ ...prev, noiseVal }));
+
+          setTimeout(() => {
+            // Step 9.4: Calculate Noisy Sum y
+            const originalY = count + noiseVal;
+            const finalY = Math.ceil(originalY); // Round up
+            setIntermediateValues(prev => ({ ...prev, noiseVal, originalNoisySumY: originalY }));
+            setNoisySumY(finalY);
+
+            setTimeout(() => {
+              // Step 9.5: Mark calculation as done
+              setCalculationProgress(2);
+            }, 700); // Delay before marking done
+          }, 700); // Delay before showing final sum
+        }, 700); // Delay before showing noise value
+      }, 700); // Delay before showing nb/2
+    }, 500); // Initial delay
+  };
+
   return (
     <div className="flex flex-col min-h-screen bg-gray-100">
       <style>
@@ -598,6 +790,22 @@ export default function GameScreen({ onBack }: GameScreenProps) {
               opacity: 1;
               transform: scale(1);
             }
+          }
+          @keyframes revealProof {
+            0% {
+              background-color: rgb(156, 163, 175);
+            }
+            100% {
+              background-color: rgb(34, 197, 94); /* Green */
+            }
+          }
+          @keyframes hideEllipsis {
+            0% { opacity: 1; }
+            100% { opacity: 0; }
+          }
+          @keyframes showProofResult {
+            0% { opacity: 0; }
+            100% { opacity: 1; }
           }
           .tooltip {
             position: relative;
@@ -667,6 +875,15 @@ export default function GameScreen({ onBack }: GameScreenProps) {
           .drop-zone.dragging {
             border-color: #666;
             background-color: #f0f0f0;
+          }
+
+          .fade-in-step {
+            animation: fadeIn 0.5s ease-in-out forwards;
+            opacity: 0;
+          }
+          @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
           }
         `}
       </style>
@@ -813,7 +1030,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
 
                 <div className="mt-4 p-3 bg-blue-50 rounded text-lg font-bold text-blue-500 transition-all relative" ref={countRef}>
                   <div className="relative inline-block group">
-                    Client count: {displayedClientCount} | Current (hidden) sum: {count}
+                    Client count: {displayedClientCount} | Hidden count sum: {count}
                     <div className="absolute invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-opacity duration-300 bottom-full left-1/2 transform -translate-x-1/2 z-10 bg-gray-800 text-white text-left p-2 rounded-lg min-w-[120px] mb-2">
                       <div className="max-h-40 overflow-y-auto">
                         {clients.length === 0 ? (
@@ -1043,7 +1260,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
               </div>
             </div>
             <div className={`p-8 text-center border rounded transition-all relative w-full flex flex-col justify-between min-h-[200px] ${getStepStyle('prove-binary')}`}>
-              <StepHeader step="prove-binary" title="Step 6: Prove Binary Values" />
+              <StepHeader step="prove-binary" title="Step 6: Prove Binary Values to the Verifier" />
               <div className="flex flex-col items-center gap-4">
                 <div className="w-full flex justify-center">
                   <Button 
@@ -1051,7 +1268,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
                     disabled={!isStepEnabled('prove-binary') || !isStepCompleted('commit-bits') || step !== 'prove-binary'}
                     className="w-1/2 py-6 text-lg"
                   >
-                    Generate Sigma-OR Proof
+                    Generate Sigma-OR Proofs
                   </Button>
                 </div>
                 {isStepCompleted('prove-binary') && (
@@ -1075,20 +1292,38 @@ export default function GameScreen({ onBack }: GameScreenProps) {
                             return (
                               <div key={index} style={style}>
                                 <div
-                                  className="w-full h-full transition-all duration-300 relative flex items-center justify-center tooltip bg-green-500"
+                                  className="w-full h-full transition-all duration-300 relative flex items-center justify-center tooltip"
                                   style={{
-                                    animation: `fadeIn 0.3s ease-in-out forwards`,
-                                    animationDelay: `${(index / privateBits.length) * 2}s`
+                                    animation: `fadeIn 0.3s ease-in-out forwards, revealProof 0.3s ease-in-out forwards`,
+                                    animationDelay: `${(index / privateBits.length) * 2}s, ${(index / privateBits.length) * 2 + 0.3}s`,
+                                    backgroundColor: 'rgb(156, 163, 175)'
                                   }}
                                 >
-                                  <span className="text-[12px] font-mono text-white">
+                                  <span
+                                    className="text-[12px] font-mono text-white absolute"
+                                    style={{
+                                      animation: `hideEllipsis 0.1s ease-in-out forwards`,
+                                      animationDelay: `${(index / privateBits.length) * 2 + 0.3}s`,
+                                      opacity: 1
+                                    }}
+                                  >
+                                    ...
+                                  </span>
+                                  <span
+                                    className="text-[12px] font-mono text-white absolute"
+                                    style={{
+                                      animation: `showProofResult 0.1s ease-in-out forwards`,
+                                      animationDelay: `${(index / privateBits.length) * 2 + 0.3}s`,
+                                      opacity: 0
+                                    }}
+                                  >
                                     1
                                   </span>
                                   <div className="tooltiptext">
                                     <div className="text-sm whitespace-nowrap">
                                       <div>Bit {index + 1}:</div>
-                                      <div>Value: {bit.value}</div>
-                                      <div>Proof: Valid</div>
+                                      <div>Actual Value: {bit.value}</div>
+                                      <div>ZK Proof: Valid</div>
                                     </div>
                                   </div>
                                 </div>
@@ -1101,40 +1336,166 @@ export default function GameScreen({ onBack }: GameScreenProps) {
                   </div>
                 )}
                 <div className="mt-4 p-4 bg-blue-50 rounded-lg text-sm text-gray-600">
-                  <p className="mb-2">Zero Knowledge OR Opening: Given a commitment 𝑐𝑥, the committing party can prove to a polynomial time verifier that 𝑐𝑥 is a commitment to either 1 or 0 without revealing which one it is.</p>
-                  <p>The verifier and the client use the oracle OOR to check if the client's input is indeed a commitment to a bit. For input 𝑥𝑖, the verifier (and provers) sends to OOR the derived commitment 𝑐𝑖 and the client sends the openings (𝑥𝑖, Σ𝑟𝑖,𝑘). The oracle responds with OOR(𝑐𝑖) = 1 if 𝑥𝑖 ∈ {0, 1} and 𝑐𝑖 is a commitment to 𝑥𝑖.</p>
+                  <p className="mb-2">In this step, we use a zero-knowledge proof system to verify that the computation was performed correctly while maintaining privacy. The protocol ensures that the noise added for differential privacy was generated faithfully, without revealing the actual noise values.</p>
+                  <p>The verifier checks that each commitment corresponds to a valid binary value (0 or 1) using the Sigma-OR protocol. For each commitment c_i, the prover demonstrates knowledge of either the opening (0, r_i) or (1, r_i') without revealing which one, where r_i and r_i' are the random values used in the Pedersen commitment scheme.</p>
                 </div>
               </div>
             </div>
-            <div className={`p-8 text-center border rounded transition-all relative w-full flex flex-col justify-between min-h-[200px] ${getStepStyle('morra')}`}>
-              <StepHeader step="morra" title="Step 7: Play Morra" />
-              <div className="morra-game">
-                <p>Play Morra to generate public bits</p>
-                <Button 
-                  onClick={() => handleStepComplete('xor-bits')}
-                  disabled={!isStepEnabled('morra') || !isStepCompleted('prove-binary') || step !== 'morra'}
-                >
-                  Play Morra
-                </Button>
-              </div>
+            <div className={`p-8 text-center border rounded transition-all relative w-full flex flex-col justify-center items-center min-h-[200px] ${getStepStyle('morra')}`}>
+              <StepHeader step="morra" title="Step 7: Generate Public Randomness (Morra)" />
+              {!isMorraPlaying && !morraAnimationCompleted ? (
+                <div className="flex flex-col items-center gap-4">
+                  <p className="text-gray-600 mb-4">
+                    Run the Morra protocol with the verifier to generate public, unbiased random bits.
+                  </p>
+                  <Button
+                    onClick={handlePlayMorra}
+                    disabled={!isStepEnabled('morra') || !isStepCompleted('prove-binary') || step !== 'morra'}
+                  >
+                    Start Morra Protocol
+                  </Button>
+                </div>
+              ) : (
+                <MorraAnimation onComplete={handleMorraComplete} />
+              )}
+
+              {/* Show Public Bits Grid after animation is complete, regardless of subsequent step */}
+              {morraAnimationCompleted && (
+                <PublicBitsGrid />
+              )}
+
+              {/* Show Proceed button only after animation is complete AND we are still in the morra step */}
+              {morraAnimationCompleted && step === 'morra' && (
+                 <Button
+                   onClick={() => handleStepComplete('xor-bits')}
+                   disabled={step !== 'morra'}
+                   className="mt-4" // Add margin top to separate from grid
+                 >
+                   Proceed to Step 8: XOR Bits
+                 </Button>
+              )}
             </div>
-            <div className={`p-8 text-center border rounded transition-all relative w-full flex flex-col justify-between min-h-[200px] ${getStepStyle('xor-bits')}`}>
-              <StepHeader step="xor-bits" title="Step 8: XOR Private & Public Bits" />
-              <Button 
-                onClick={() => handleStepComplete('compute-sum')}
-                disabled={!isStepEnabled('xor-bits') || !isStepCompleted('morra') || step !== 'xor-bits'}
-              >
-                Compute XOR
-              </Button>
+            <div className={`p-8 text-center border rounded transition-all relative w-full flex flex-col justify-center items-center min-h-[200px] ${getStepStyle('xor-bits')}`}>
+              <StepHeader step="xor-bits" title="Step 8: XOR Private & Public Bits (bᵢ = b'ᵢ ⊕ zᵢ)" />
+              <div className="flex flex-col items-center gap-4 w-full">
+                {/* Render grids only when step is reached or passed */}
+                {stepOrder.indexOf(step) >= stepOrder.indexOf('xor-bits') && (
+                  <>
+                    <StaticBitGrid
+                      bits={privateBits}
+                      label="Private Random Bits (b'ᵢ from Step 4)"
+                      colorTheme="blue"
+                    />
+                    <StaticBitGrid
+                      bits={publicBits}
+                      label="Public Random Bits (zᵢ from Step 7)"
+                      colorTheme="green"
+                    />
+
+                    <div className="flex items-center justify-center gap-4 my-4">
+                       <span className="text-4xl font-bold text-gray-600">⊕</span>
+                       <Button
+                         onClick={handleComputeXOR}
+                         disabled={xorCompleted || privateBits.length === 0 || publicBits.length === 0 || privateBits.length !== publicBits.length || step !== 'xor-bits'}
+                         className="px-6 py-3 text-lg"
+                       >
+                         {xorCompleted ? "XOR Computed" : "Compute XOR"}
+                       </Button>
+                     </div>
+                  </>
+                 )}
+
+                 {/* Render noise bits only after XOR is done */}
+                 {xorCompleted && (
+                   <>
+                     <StaticBitGrid
+                       bits={noiseBits}
+                       label="Resulting Private Noise Bits (bᵢ = b'ᵢ ⊕ zᵢ)"
+                       colorTheme="blue" // Noise bits are also private
+                     />
+                     {uniformityConfidenceInterval && (
+                        <div className="mt-4 text-sm text-gray-600 p-2 bg-gray-50 rounded border w-full max-w-[1200px] text-center">
+                          <strong>Uniformity Check (Wald interval):</strong> {uniformityConfidenceInterval}
+                          {uniformityConfidenceInterval.includes("CI for proportion") && !uniformityConfidenceInterval.includes("small") && (
+                            <p className="text-xs mt-1">If this interval contains 0.5, the data is consistent with a uniform distribution (p=0.5) at the 95% confidence level.</p>
+                          )}
+                        </div>
+                     )}
+                   </>
+                 )}
+
+                 {/* Proceed Button - Show only when XOR is done and we are in step 8 */}
+                 {xorCompleted && step === 'xor-bits' && (
+                   <Button
+                     onClick={() => handleStepComplete('compute-sum')}
+                     className="mt-6 py-4 px-8 text-lg" // Make proceed button larger
+                   >
+                     Proceed to Step 9: Compute Sum (y)
+                   </Button>
+                 )}
+              </div>
             </div>
             <div className={`p-8 text-center border rounded transition-all relative w-full flex flex-col justify-between min-h-[200px] ${getStepStyle('compute-sum')}`}>
               <StepHeader step="compute-sum" title="Step 9: Compute Sum" />
-              <Button 
-                onClick={() => handleStepComplete('compute-z')}
-                disabled={!isStepEnabled('compute-sum') || !isStepCompleted('xor-bits') || step !== 'compute-sum'}
-              >
-                Compute y
-              </Button>
+              <div className="flex flex-col items-center gap-4 w-full">
+                <Button
+                  onClick={handleComputeSumY}
+                  disabled={!isStepEnabled('compute-sum') || !isStepCompleted('xor-bits') || step !== 'compute-sum' || calculationProgress === 1 || noiseBits.length === 0}
+                  className="px-6 py-3 text-lg mb-6"
+                >
+                  {calculationProgress === 0 ? "Compute Noisy Sum (y)" : calculationProgress === 1 ? "Calculating..." : "Calculation Complete"}
+                </Button>
+
+                {calculationProgress > 0 && noiseBits.length > 0 && (
+                  <div className="calculation-details w-full max-w-xl p-6 bg-blue-50 rounded-lg border border-blue-200 space-y-4 text-left text-lg">
+                    {intermediateValues.sumNoise !== undefined && (
+                      <div className="fade-in-step">
+                        Sum of Noise Bits (Σ bᵢ): <span className="font-mono font-semibold text-blue-700">{intermediateValues.sumNoise.toLocaleString()}</span>
+                      </div>
+                    )}
+                    {intermediateValues.nbOver2 !== undefined && (
+                      <div className="fade-in-step" style={{ animationDelay: '0.7s' }}>
+                        Target Noise Offset (n<sub>b</sub>/2): <span className="font-mono font-semibold text-blue-700">{intermediateValues.nbOver2.toLocaleString()}</span>
+                      </div>
+                    )}
+                    {intermediateValues.noiseVal !== undefined && (
+                      <div className="fade-in-step font-bold text-blue-800" style={{ animationDelay: '1.4s' }}>
+                        Differential Privacy Noise = (Σ bᵢ) - (n<sub>b</sub>/2) = <span className="font-mono">{intermediateValues.noiseVal.toLocaleString()}</span>
+                      </div>
+                    )}
+                    {noisySumY !== null && (
+                      <div className="fade-in-step mt-6 pt-4 border-t border-blue-200" style={{ animationDelay: '2.1s' }}>
+                        <div className="mb-2">Hidden Count Sum (Step 1): <span className="font-mono font-semibold text-gray-700">{count.toLocaleString()}</span></div>
+                        <div className="mb-2">DP Noise (calculated above): <span className="font-mono font-semibold text-blue-700">{intermediateValues.noiseVal?.toLocaleString()}</span></div>
+                        <div className="text-xl text-gray-800">
+                          Intermediate Noisy Sum = <span className="font-mono">{intermediateValues.originalNoisySumY?.toLocaleString()}</span>
+                        </div>
+                        {/* Show rounding step only if original value is different from rounded value */}                   
+                        {intermediateValues.originalNoisySumY !== noisySumY && (
+                          <div className="text-sm text-blue-600 italic mt-1">
+                            Rounding up: <span className="font-mono">{intermediateValues.originalNoisySumY?.toLocaleString()} ≈ {noisySumY.toLocaleString()}</span>
+                          </div>
+                        )}
+                        <div className="text-2xl font-bold text-black mt-2">
+                          Final Noisy Sum (y) = <span className="font-mono">{noisySumY.toLocaleString()}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {noiseBits.length === 0 && step === 'compute-sum' && isStepCompleted('xor-bits') && (
+                   <p className="text-red-500">Cannot compute sum: Noise bits (bᵢ) from Step 8 are missing.</p>
+                )}
+              </div>
+              {calculationProgress === 2 && (
+                <Button
+                  onClick={() => handleStepComplete('compute-z')}
+                  disabled={step !== 'compute-sum'}
+                  className="mt-6 py-4 px-8 text-lg"
+                >
+                  Proceed to Step 10: Compute z
+                </Button>
+              )}
             </div>
             <div className={`p-8 text-center border rounded transition-all relative w-full flex flex-col justify-between min-h-[200px] ${getStepStyle('compute-z')}`}>
               <StepHeader step="compute-z" title="Step 10: Compute z" />
