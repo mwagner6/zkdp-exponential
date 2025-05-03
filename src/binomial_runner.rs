@@ -85,7 +85,7 @@ impl BinomialRunner {
             r,
             client,
             input_commitments: input_coms,
-            coms_sum: coms_sum,
+            coms_sum,
             x_sum,
             r_sum,
             server,

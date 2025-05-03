@@ -250,18 +250,18 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .app_data(web::Data::new(runners_map.clone()))
             .route("/new", web::post().to(new_runner))
-            .route("/commits", web::post().to(get_x_commits)) // Changed to POST
+            .route("/commits", web::post().to(get_x_commits))
             .route("/randomness", web::post().to(input_randomness))
             .route("/priv_random_commits", web::post().to(get_private_random_commits))
-            .route("/public_random", web::post().to(get_public_random)) // Changed to POST
+            .route("/public_random", web::post().to(get_public_random))
             .route("/xor_bits", web::post().to(get_xor_bits))
-            .route("/overwrite_xor_bits", web::post().to(overwrite_xor_bits))  // Changed to POST
-            .route("/xor_commits", web::post().to(get_xor_commits)) // Changed to POST
-            .route("/compute_sum", web::post().to(compute_sum))   // Changed to POST
-            .route("/z", web::post().to(get_z))        // Changed to POST
-            .route("/commit_pedersons", web::post().to(commit_pedersons)) // Changed to POST
-            .route("/lhs", web::post().to(get_lhs))      // Changed to POST
-            .route("/rhs", web::post().to(get_rhs))      // Changed to POST
+            .route("/overwrite_xor_bits", web::post().to(overwrite_xor_bits)) 
+            .route("/xor_commits", web::post().to(get_xor_commits))
+            .route("/compute_sum", web::post().to(compute_sum))  
+            .route("/z", web::post().to(get_z))       
+            .route("/commit_pedersons", web::post().to(commit_pedersons))
+            .route("/lhs", web::post().to(get_lhs))     
+            .route("/rhs", web::post().to(get_rhs))     
     })
     .bind("127.0.0.1:8080")?
     .run()
