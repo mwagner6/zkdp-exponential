@@ -25,6 +25,12 @@ pub struct InputRandomnessRequest {
     pub session_id: String, // Expect session_id in the request
 }
 
+#[derive(Deserialize, Debug)]
+pub struct OverwriteXorBitRequest {
+    pub bits: Vec<u8>,
+    pub session_id: String,
+}
+
 #[derive(Serialize)]
 pub struct GetPrivateCommitsResponse {
     pub private_commits: Vec<String>,
@@ -139,6 +145,19 @@ async fn get_xor_bits(
     }
 }
 
+async fn overwrite_xor_bits(
+    req: web::Json<OverwriteXorBitRequest>,
+    runners: web::Data<RunnerMap>
+) -> Result<impl Responder, ActixWebError> {
+    let mut runners_map = runners.lock().unwrap();
+    if let Some(runner) = runners_map.get_mut(&req.session_id) {
+        runner.overwrite_xor_bits(&req.bits);
+        Ok(HttpResponse::Ok().json("Bits overwritten"))
+    } else {
+        Err(actix_web::error::ErrorNotFound("Runner not found for this session"))
+    }
+}
+
 async fn get_xor_commits(
     req: web::Json<SessionIdRequest>,  // Expect session_id in body
     runners: web::Data<RunnerMap>,
@@ -235,7 +254,8 @@ async fn main() -> std::io::Result<()> {
             .route("/randomness", web::post().to(input_randomness))
             .route("/priv_random_commits", web::post().to(get_private_random_commits))
             .route("/public_random", web::post().to(get_public_random)) // Changed to POST
-            .route("/xor_bits", web::post().to(get_xor_bits))  // Changed to POST
+            .route("/xor_bits", web::post().to(get_xor_bits))
+            .route("/overwrite_xor_bits", web::post().to(overwrite_xor_bits))  // Changed to POST
             .route("/xor_commits", web::post().to(get_xor_commits)) // Changed to POST
             .route("/compute_sum", web::post().to(compute_sum))   // Changed to POST
             .route("/z", web::post().to(get_z))        // Changed to POST

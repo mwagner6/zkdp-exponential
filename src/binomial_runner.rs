@@ -197,6 +197,20 @@ impl BinomialRunner {
         ).collect()
     }
 
+    pub fn overwrite_xor_bits(&mut self, bits: &[u8]) {
+        let overwrite_bits_new: Vec<Scalar> = bits.iter().map(
+            |x| match *x {
+                1 => {
+                    Scalar::one()
+                },
+                _ => {
+                    Scalar::zero()
+                }
+            }
+        ).collect(); 
+        self.xor_bits = overwrite_bits_new;
+    }
+
     // <===== Step 9 =====>
     // Compute sum (output result). 
     pub fn compute_sum(&mut self) -> u64 {
