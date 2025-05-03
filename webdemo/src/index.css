@@ -16,8 +16,6 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-
-
 @layer base {
   :root {
     --background: 0 0% 100%;
@@ -74,13 +72,26 @@ body {
   }
 }
 
-
-
 @layer base {
   * {
     @apply border-border;
   }
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+/* Add keyframes for slide transitions */
+@keyframes slideInLeft {
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideInRight {
+  to {
+    transform: translateX(0);
+    opacity: 1;
   }
 }

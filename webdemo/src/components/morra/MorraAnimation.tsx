@@ -13,7 +13,7 @@ const MorraAnimation: React.FC<MorraAnimationProps> = ({ onComplete }) => {
     if (!isFinished && step < totalSteps) { // Only run timers if not finished
       const timer = setTimeout(() => {
         setStep(step + 1);
-      }, 1000); // Adjust delay between steps
+      }, 500); // Adjust delay between steps
       return () => clearTimeout(timer);
     } else if (!isFinished && step === totalSteps) { // When animation reaches the end
       setIsFinished(true); // Mark as finished

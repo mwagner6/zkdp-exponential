@@ -1,10 +1,8 @@
 import { useState } from 'react'
 import './App.css'
-import NavigationButton from './components/navigation/NavigationButton'
-import ZeroKnowledgePage from './components/pages/ZeroKnowledgePage'
-import SigmaProtocolPage from './components/pages/SigmaProtocolPage'
+import IntroductionPage from './components/pages/IntroductionPage'
 import GameScreen from './components/pages/GameScreen'
-import DPPage from './components/pages/DPPage'
+import IntroNavbar from './components/navigation/IntroNavbar'
 
 function App() {
   const [currentPage, setCurrentPage] = useState(1)
@@ -13,16 +11,8 @@ function App() {
 
   const pages = [
     {
-      title: "Zero-Knowledge Proofs",
-      content: <ZeroKnowledgePage />
-    },
-    {
-      title: "Differential Privacy",
-      content: <DPPage />
-    },
-    {
-      title: "Sigma-OR Protocol",
-      content: <SigmaProtocolPage />
+      title: "Introduction",
+      content: <IntroductionPage />
     },
     {
       title: "Interactive Demo",
@@ -44,7 +34,7 @@ function App() {
   };
 
   const currentPageContent = pages[currentPage - 1]
-  const isGameScreen = currentPage === 4;
+  const isGameScreen = currentPage === 2;
   const contentClass = isGameScreen 
     ? 'game-screen'
     : transitionDirection 
@@ -54,26 +44,17 @@ function App() {
   return (
     <div className="app">
       {!isGameScreen && (
-        <div className="content-container">
-          {currentPage > 1 && (
-            <NavigationButton 
-              direction="back"
-              onClick={() => handleNavigation('back')}
-              disabled={isTransitioning}
-            />
-          )}
-          <div className={contentClass}>
-            <h1>{currentPageContent.title}</h1>
-            {currentPageContent.content}
+        <>
+          <IntroNavbar 
+            onNext={() => handleNavigation('next')}
+            disabled={isTransitioning}
+          />
+          <div className="content-container pt-[60px]">
+            <div className={contentClass}>
+              {currentPageContent.content}
+            </div>
           </div>
-          {currentPage < pages.length && (
-            <NavigationButton 
-              direction="next"
-              onClick={() => handleNavigation('next')}
-              disabled={isTransitioning}
-            />
-          )}
-        </div>
+        </>
       )}
       {isGameScreen && currentPageContent.content}
     </div>

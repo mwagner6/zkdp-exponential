@@ -1,54 +1,97 @@
-# React + TypeScript + Vite
+# ZKDP (Zero-Knowledge Differential Privacy Demo)
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A web application demonstrating privacy-preserving cryptographic concepts.
 
-Currently, two official plugins are available:
+## Description
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+This project is a React-based web application built with Vite, TypeScript, and Tailwind CSS. It serves as an educational tool to explain and demonstrate concepts such as:
 
-## Expanding the ESLint configuration
+*   Zero-Knowledge Proofs
+*   Differential Privacy
+*   Sigma-OR Protocols
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+It features a multi-page navigation structure and includes an interactive demo/game screen.
 
-```js
-export default tseslint.config({
-  extends: [
-    // Remove ...tseslint.configs.recommended and replace with this
-    ...tseslint.configs.recommendedTypeChecked,
-    // Alternatively, use this for stricter rules
-    ...tseslint.configs.strictTypeChecked,
-    // Optionally, add this for stylistic rules
-    ...tseslint.configs.stylisticTypeChecked,
-  ],
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-})
+## Tech Stack
+
+*   **Framework:** React 19
+*   **Build Tool:** Vite
+*   **Language:** TypeScript
+*   **Styling:** Tailwind CSS, Emotion, MUI
+*   **UI Components:** Radix UI, Lucide Icons
+*   **Linting:** ESLint
+*   **Other Libraries:** `react-papaparse`, `react-window`
+
+## Getting Started
+
+### Prerequisites
+
+*   Node.js (v18 or later recommended)
+*   npm (comes with Node.js) or pnpm or yarn
+
+### Installation
+
+1.  Clone the repository:
+    ```bash
+    git clone https://github.com/Dynosol/zkdp
+    cd zkdp
+    ```
+2.  Install dependencies:
+    ```bash
+    npm install
+    # or
+    # pnpm install
+    # or
+    # yarn install
+    ```
+
+### Running the Development Server
+
+To start the local development server:
+
+```bash
+npm run dev
+# or
+# pnpm dev
+# or
+# yarn dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Open your browser and navigate to `http://localhost:5173` (or the port specified by Vite).
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Available Scripts
 
-export default tseslint.config({
-  plugins: {
-    // Add the react-x and react-dom plugins
-    'react-x': reactX,
-    'react-dom': reactDom,
-  },
-  rules: {
-    // other rules...
-    // Enable its recommended typescript rules
-    ...reactX.configs['recommended-typescript'].rules,
-    ...reactDom.configs.recommended.rules,
-  },
-})
+*   `npm run dev`: Starts the development server with hot module replacement.
+*   `npm run build`: Compiles TypeScript and builds the application for production in the `dist/` folder.
+*   `npm run lint`: Runs ESLint to check for code style and potential errors.
+*   `npm run preview`: Serves the production build locally for previewing.
+
+## Project Structure
+
+```
+zkdp/
+├── public/             # Static assets
+├── src/                # Source files
+│   ├── assets/         # Image/font assets
+│   │   ├── navigation/
+│   │   ├── pages/      # Page components (ZeroKnowledge, DP, Sigma, Game)
+│   │   └── ui/         # Base UI elements (likely from Shadcn/ui or similar)
+│   ├── lib/            # Utility functions, Shadcn utils
+│   ├── App.css         # Main app styles
+│   ├── App.tsx         # Root application component (handles routing/layout)
+│   ├── index.css       # Global styles / Tailwind base
+│   ├── main.tsx        # Application entry point
+│   └── vite-env.d.ts   # Vite environment types
+├── .eslintrc.cjs       # ESLint configuration
+├── .gitignore          # Git ignore rules
+├── index.html          # Main HTML entry point
+├── package.json        # Project metadata and dependencies
+├── pnpm-lock.yaml      # pnpm lock file
+├── postcss.config.js   # PostCSS configuration
+├── README.md           # This file
+├── tailwind.config.js  # Tailwind CSS configuration
+├── tsconfig.json       # Base TypeScript configuration
+├── tsconfig.app.json   # App-specific TypeScript configuration
+├── tsconfig.node.json  # Node-specific TypeScript configuration
+└── vite.config.ts      # Vite configuration
 ```
