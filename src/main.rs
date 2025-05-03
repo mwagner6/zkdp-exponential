@@ -26,6 +26,11 @@ pub struct InputRandomnessRequest {
 }
 
 #[derive(Serialize)]
+pub struct GetPrivateCommitsResponse {
+    pub private_commits: Vec<String>,
+}
+
+#[derive(Serialize)]
 pub struct GetRandomResponse {
     pub random_bits: Vec<u8>,
 }
@@ -93,6 +98,19 @@ async fn input_randomness(
     } else {
         Err(actix_web::error::ErrorNotFound("Runner not found for this session"))
     }
+}
+
+async fn get_private_random_commits(
+    req: web::Json<SessionIdRequest>,
+    runners: web::Data<RunnerMap>,
+) -> Result<impl Responder, ActixWebError> {
+    let runners_map = runners.lock().unwrap();
+    if let Some(runner) = runners_map.get(&req.session_id) {
+        let private_commits = runner.get_private_random_commits().into_iter().map(|js_val| js_val).collect();
+        Ok(HttpResponse::Ok().json(GetPrivateCommitsResponse { private_commits }))
+    } else {
+        Err(actix_web::error::ErrorNotFound("Runner not found for this session"))
+    } 
 }
 
 async fn get_public_random(
@@ -215,6 +233,7 @@ async fn main() -> std::io::Result<()> {
             .route("/new", web::post().to(new_runner))
             .route("/commits", web::post().to(get_x_commits)) // Changed to POST
             .route("/randomness", web::post().to(input_randomness))
+            .route("/priv_random_commits", web::post().to(get_private_random_commits))
             .route("/public_random", web::post().to(get_public_random)) // Changed to POST
             .route("/xor_bits", web::post().to(get_xor_bits))  // Changed to POST
             .route("/xor_commits", web::post().to(get_xor_commits)) // Changed to POST

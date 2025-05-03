@@ -21,6 +21,7 @@ pub struct BinomialRunner {
     server: participants::Server,
     verifier: participants::Board,
     private_bits: Vec<Scalar>,
+    private_commits: Vec<RistrettoPoint>,
     public_bits: Vec<Scalar>,
     xor_bits: Vec<Scalar>,
     xor_commits: Vec<RistrettoPoint>,
@@ -90,6 +91,7 @@ impl BinomialRunner {
             server,
             verifier,
             private_bits: Vec::new(),
+            private_commits: Vec::new(),
             public_bits: Vec::new(),
             xor_bits: Vec::new(),
             xor_commits: Vec::new(),
@@ -128,9 +130,11 @@ impl BinomialRunner {
         let mut public_flips: Vec<Scalar> = Vec::new();
         let mut xor_flips: Vec<Scalar> = Vec::new();
         let mut bit_coms: Vec<RistrettoPoint> = Vec::new();
+        let mut private_commits: Vec<RistrettoPoint> = Vec::new();
         self.private_bits = private_bits_new;
         for bit in self.private_bits.iter() {
             let transcript = self.server.com.create_proof_0(*bit);
+            private_commits.push(transcript.com);
             _ = self.verifier.verify(&transcript);
             let b = flip();
             if b {
@@ -147,6 +151,15 @@ impl BinomialRunner {
         self.public_bits = public_flips;
         self.xor_bits = xor_flips;
         self.xor_commits = bit_coms;
+        self.private_commits = private_commits;
+    }
+
+    // <===== Step 5 =====>
+    // Return commitments for each of the privately random bits
+    pub fn get_private_random_commits(&self) -> Vec<String> {
+        self.private_commits.iter().map(
+            |c| BigUint::from_bytes_le(&c.compress().to_bytes()).to_str_radix(10)
+        ).collect()
     }
 
     // <===== Step 6 =====>
