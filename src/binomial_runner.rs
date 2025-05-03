@@ -3,7 +3,7 @@ use crate::participants;
 use crate::generic_commitments::Commitment;
 use coinflip::flip;
 use num_bigint::BigUint;
-
+use rayon::prelude::*;
 use rand_core::OsRng;
 
 pub struct BinomialRunner {
@@ -58,11 +58,11 @@ impl BinomialRunner {
             }
         ).collect();
         let client = participants::Client::new(2, g, h);
-        let mut input_coms: Vec<RistrettoPoint> = Vec::new();
-        for i in 0..x_new.len() {
-            let com = client.com.commit(x_new[i], r[i]);
-            input_coms.push(com);
-        }
+        let input_coms: Vec<RistrettoPoint> = x_new.par_iter()
+                                                        .zip(r.par_iter())
+                                                        .map(|(&x_i, &r_i)| 
+                                                                        client.com.commit(x_i, r_i)
+                                                            ).collect();
 
         let x_sum: Scalar = x_new.iter().sum();
         let r_sum: Scalar = r.iter().sum();

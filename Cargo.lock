@@ -818,6 +818,7 @@ dependencies = [
  "openssl-sys",
  "rand 0.8.5",
  "rand_core 0.5.1",
+ "rayon",
  "serde",
  "serde_json",
  "sha3",
