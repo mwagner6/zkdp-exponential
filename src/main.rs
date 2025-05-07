@@ -31,6 +31,20 @@ pub struct OverwriteXorBitRequest {
     pub session_id: String,
 }
 
+#[derive(Deserialize, Debug)]
+pub struct RandPInitRequest {
+    pub n: i32,
+    pub session_id: String,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct RandVarPInputRequest {
+    pub k: u32,
+    pub m: i32, 
+    bits: Vec<u8>,
+    pub session_id: String,
+}
+
 #[derive(Serialize)]
 pub struct GetPrivateCommitsResponse {
     pub private_commits: Vec<String>,
@@ -65,6 +79,16 @@ pub struct GetZResponse {
 pub struct GetLhsRhsResponse {
     pub lhs: String,
     pub rhs: String,
+}
+
+#[derive(Serialize)]
+pub struct RandVarPInputResponse {
+    pub success: bool
+}
+
+#[derive(Serialize)]
+pub struct RandVarPEndResponse {
+    pub success: bool
 }
 
 // API Handlers
@@ -127,6 +151,45 @@ async fn get_public_random(
     if let Some(runner) = runners_map.get(&req.session_id) {
         let random_bits = runner.get_public_random();
         Ok(HttpResponse::Ok().json(GetRandomResponse { random_bits }))
+    } else {
+        Err(actix_web::error::ErrorNotFound("Runner not found for this session"))
+    }
+}
+
+async fn rand_p_init(
+    req: web::Json<RandPInitRequest>,
+    runners: web::Data<RunnerMap>,
+) -> Result<impl Responder, ActixWebError> {
+    let mut runners_map = runners.lock().unwrap();
+    if let Some(runner) = runners_map.get_mut(&req.session_id) {
+        runner.rand_p_init(req.n);
+        Ok(HttpResponse::Ok().json("Switched to variable p"))
+    } else {
+        Err(actix_web::error::ErrorNotFound("Runner not found for this session"))
+    } 
+}
+
+async fn random_variable_p_input(
+    req: web::Json<RandVarPInputRequest>,
+    runners: web::Data<RunnerMap>,
+) -> Result<impl Responder, ActixWebError> {
+    let mut runners_map = runners.lock().unwrap();
+    if let Some(runner) = runners_map.get_mut(&req.session_id) {
+        let success = runner.random_variable_p_input(req.k, req.m, &req.bits);
+        Ok(HttpResponse::Ok().json(RandVarPInputResponse {success}))
+    } else {
+        Err(actix_web::error::ErrorNotFound("Runner not found for this session"))
+    }
+}
+
+async fn random_variable_p_end(
+    req: web::Json<SessionIdRequest>,
+    runners: web::Data<RunnerMap>,
+) -> Result<impl Responder, ActixWebError> {
+    let mut runners_map = runners.lock().unwrap();
+    if let Some(runner) = runners_map.get_mut(&req.session_id) {
+        let success = runner.random_variable_p_end();
+        Ok(HttpResponse::Ok().json(RandVarPEndResponse {success}))
     } else {
         Err(actix_web::error::ErrorNotFound("Runner not found for this session"))
     }
@@ -254,6 +317,9 @@ async fn main() -> std::io::Result<()> {
             .route("/randomness", web::post().to(input_randomness))
             .route("/priv_random_commits", web::post().to(get_private_random_commits))
             .route("/public_random", web::post().to(get_public_random))
+            .route("/rand_p_init", web::post().to(rand_p_init))
+            .route("/rand_p_input", web::post().to(random_variable_p_input))
+            .route("/rand_p_end", web::post().to(random_variable_p_end))
             .route("/xor_bits", web::post().to(get_xor_bits))
             .route("/overwrite_xor_bits", web::post().to(overwrite_xor_bits)) 
             .route("/xor_commits", web::post().to(get_xor_commits))
