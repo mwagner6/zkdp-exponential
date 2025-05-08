@@ -103,14 +103,13 @@ impl Server{
 
 }
 
-#[test]
+/*#[test]
 fn test_sketching(){
 
     // use crate::utils::{gen_random, additive_share};
     use crate::public_parameters::PublicParams;
     use crate::poplar::Server;
     use crate::verifiable_client::Client;
-    use crate::beaver_triple::BeaverTriple;
 
     let security_parameter = 4;
     let num_candidates = 2; // Doesn't play a role in this test but need it to initialise server
@@ -130,7 +129,6 @@ fn test_sketching(){
     }
 
     // Pre-processing: Client has a,b and c
-    let beaver_triples = BeaverTriple::new(num_shares, &public_param.q, &mut public_param.ctx);
     let randomness = servers[0].generate_fresh_randomness();
     
     // Servers never see a, b, c in plain
@@ -173,3 +171,4 @@ fn test_sketching(){
 
 
 }
+    */

@@ -380,11 +380,15 @@ pub fn test_unbiased_p() {
 
 #[test]
 pub fn test_biased_p() {
-    let mut br: BinomialRunner = BinomialRunner::new(&[1, 1, 1, 0, 0, 1, 0, 1, 1, 1]);
+    let mut rng = rand::thread_rng();
+    let bits: Vec<u8> = (0..10000).map(|_| rng.gen_bool(0.5) as u8).collect();
+    let mut br: BinomialRunner = BinomialRunner::new(&bits);
     let coms = br.get_x_commits();
     br.rand_p_init(6);
     for _ in 0..6 {
-        assert!(br.random_variable_p_input(2, 5, &[1, 0, 1, 0, 0]));
+        let mut randbits: Vec<u8> = vec![1; 3257];
+        randbits.extend(vec![0; 6743]);
+        assert!(br.random_variable_p_input(3257, 10000, &randbits));
     }
     assert!(br.random_variable_p_end());
     let xorbits = br.get_xor_bits();
