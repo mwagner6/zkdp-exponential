@@ -2,8 +2,8 @@
 name = "dp_client"
 version = "0.1.0"
 edition = "2021"
-authors = ["Ari Biswas <aribiswas3@gmail.com>"]
-description = "A pure-Rust implementation for auditable DP"
+authors = ["Ari Biswas <aribiswas3@gmail.com>, Max Wagner <maxwagner@college.harvard.edu>"]
+description = "A pure-Rust implementation for auditable DP, extended to function as a backend for a ts server demonstrating ZKDP"
 keywords = [
   "secret-sharing",
   "Shamir",
