@@ -379,6 +379,32 @@ pub fn test_unbiased_p() {
 }
 
 #[test]
+pub fn test_unbiased_p_cheat() {
+    let mut rng = rand::thread_rng();
+    let bits: Vec<u8> = (0..10000).map(|_| rng.gen_bool(0.5) as u8).collect();
+    let init_sum: u32 = bits.iter().map(|&x| x as u32).sum();
+    println!("Initial count: {}", init_sum);
+    let mut br: BinomialRunner = BinomialRunner::new(&bits);
+    let coms = br.get_x_commits();
+    let randbits: Vec<u8> = (0..10000).map(|_| rng.gen_bool(0.5) as u8).collect();
+    br.input_randomness(&randbits);
+    let privrand_coms = br.get_private_random_commits();
+    let pubrand = br.get_public_random();
+    let xorbits = br.get_xor_bits();
+    let xorbitsum: u32 = xorbits.iter().map(|&x| x as u32).sum(); 
+    println!("XORed bits sum: {}", xorbitsum);
+    br.overwrite_xor_bits(&vec![1; xorbits.len()]);
+    let xorcoms = br.get_xor_commits();
+    let output = br.compute_sum();
+    println!("Output: {}", output);
+    let z = br.get_z();
+    br.commit_pedersons();
+    let lhs = br.get_lhs();
+    let rhs = br.get_rhs();
+    assert_ne!(lhs, rhs)
+}
+
+#[test]
 pub fn test_biased_p() {
     let mut rng = rand::thread_rng();
     let bits: Vec<u8> = (0..10000).map(|_| rng.gen_bool(0.5) as u8).collect();
@@ -401,4 +427,30 @@ pub fn test_biased_p() {
     let lhs = br.get_lhs();
     let rhs = br.get_rhs();
     assert_eq!(lhs, rhs);
+}
+
+#[test]
+pub fn test_biased_p_cheat() {
+    let mut rng = rand::thread_rng();
+    let bits: Vec<u8> = (0..10000).map(|_| rng.gen_bool(0.5) as u8).collect();
+    let mut br: BinomialRunner = BinomialRunner::new(&bits);
+    let coms = br.get_x_commits();
+    br.rand_p_init(6);
+    for _ in 0..6 {
+        let mut randbits: Vec<u8> = vec![1; 3257];
+        randbits.extend(vec![0; 6743]);
+        assert!(br.random_variable_p_input(3257, 10000, &randbits));
+    }
+    assert!(br.random_variable_p_end());
+    let xorbits = br.get_xor_bits();
+    println!("XOR bits: {:?}", xorbits);
+    let xorcoms = br.get_xor_commits();
+    br.overwrite_xor_bits(&vec![0; xorbits.len()]);
+    let out = br.compute_sum();
+    println!("XOR sum: {}", out);
+    let z = br.get_z();
+    br.commit_pedersons();
+    let lhs = br.get_lhs();
+    let rhs = br.get_rhs();
+    assert_ne!(lhs, rhs);
 }
