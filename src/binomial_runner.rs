@@ -5,6 +5,7 @@ use coinflip::flip;
 use num_bigint::BigUint;
 use rayon::prelude::*;
 use rand_core::OsRng;
+use crate::rand::Rng;
 
 // Helper function to unzip after parallel iters
 trait Unzip4<A, B, C, D> {
@@ -74,9 +75,6 @@ impl BinomialRunner {
                 }
             }
         ).collect();
-        for x in &x_new {
-            println!("{}", BigUint::from_bytes_le(&x.to_bytes()));
-        }
         let r: Vec<Scalar> = vec![0; x_new.len()].iter().map(
             |_| {
                 let mut csprng = OsRng;
@@ -356,13 +354,19 @@ impl BinomialRunner {
 
 #[test]
 pub fn test_unbiased_p() {
-    let mut br: BinomialRunner = BinomialRunner::new(&[1, 1, 1, 0, 0, 1, 0, 1, 1, 1]);
+    let mut rng = rand::thread_rng();
+    let bits: Vec<u8> = (0..10000).map(|_| rng.gen_bool(0.5) as u8).collect();
+    let init_sum: u32 = bits.iter().map(|&x| x as u32).sum();
+    println!("Initial count: {}", init_sum);
+    let mut br: BinomialRunner = BinomialRunner::new(&bits);
     let coms = br.get_x_commits();
-    br.input_randomness(&[1, 1, 0, 0, 1, 0]);
+    let randbits: Vec<u8> = (0..10000).map(|_| rng.gen_bool(0.5) as u8).collect();
+    br.input_randomness(&randbits);
     let privrand_coms = br.get_private_random_commits();
     let pubrand = br.get_public_random();
     let xorbits = br.get_xor_bits();
-    println!("XORed bits: {:?}", xorbits);
+    let xorbitsum: u32 = xorbits.iter().map(|&x| x as u32).sum(); 
+    println!("XORed bits sum: {}", xorbitsum);
     let xorcoms = br.get_xor_commits();
     let output = br.compute_sum();
     println!("Output: {}", output);
