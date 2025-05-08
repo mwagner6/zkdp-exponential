@@ -6,13 +6,31 @@ use num_bigint::BigUint;
 use rayon::prelude::*;
 use rand_core::OsRng;
 
+// Helper function to unzip after parallel iters
+trait Unzip4<A, B, C, D> {
+    fn unzip_n(self) -> (Vec<A>, Vec<B>, Vec<C>, Vec<D>);
+}
+
+impl<I, A, B, C, D> Unzip4<A, B, C, D> for I
+where
+    I: Iterator<Item = (A, B, C, D)>,
+{
+    fn unzip_n(self) -> (Vec<A>, Vec<B>, Vec<C>, Vec<D>) {
+        let mut a = Vec::new();
+        let mut b = Vec::new();
+        let mut c = Vec::new();
+        let mut d = Vec::new();
+        for (x, y, z, w) in self {
+            a.push(x);
+            b.push(y);
+            c.push(z);
+            d.push(w);
+        }
+        (a, b, c, d)
+    }
+}
+
 pub struct BinomialRunner {
-    h: RistrettoPoint,
-    g: RistrettoPoint,
-    num_clients: i32,
-    num_shares: usize,
-    x: Vec<Scalar>,
-    r: Vec<Scalar>,
     client: participants::Client,
     input_commitments: Vec<RistrettoPoint>,
     coms_sum: RistrettoPoint,
@@ -43,7 +61,7 @@ impl BinomialRunner {
 
     // <===== Step 1 =====>
     // Initialization function. Takes in number of bits, and raw x_i bits. Chooses h and j arbitrarily. 
-    pub fn new(n: i32, x: &[u8]) -> BinomialRunner {
+    pub fn new(x: &[u8]) -> BinomialRunner {
         let h: RistrettoPoint = RistrettoPoint::from_uniform_bytes(b"this is another secret that should never be disclosed to anyone ");
         let g: RistrettoPoint = constants::RISTRETTO_BASEPOINT_POINT;
         let x_new: Vec<Scalar> = x.iter().map(
@@ -84,12 +102,6 @@ impl BinomialRunner {
         let verifier = participants::Board::new(g, h);
 
         BinomialRunner {
-            h,
-            g,
-            num_clients: n,
-            num_shares: 2,
-            x: x_new,
-            r,
             client,
             input_commitments: input_coms,
             coms_sum,
@@ -141,27 +153,35 @@ impl BinomialRunner {
                 }
             }
         ).collect();
-        let mut public_flips: Vec<Scalar> = Vec::new();
-        let mut xor_flips: Vec<Scalar> = Vec::new();
-        let mut bit_coms: Vec<RistrettoPoint> = Vec::new();
-        let mut private_commits: Vec<RistrettoPoint> = Vec::new();
+
         self.private_bits = private_bits_new;
-        for bit in self.private_bits.iter() {
-            let transcript = self.server.com.create_proof_0(*bit);
-            private_commits.push(transcript.com);
-            _ = self.verifier.verify(&transcript);
-            let b = flip();
-            if b {
-                public_flips.push(Scalar::one());
-                xor_flips.push(Scalar::one() - bit);
-                let com_one = self.server.com.commit(Scalar::one(), Scalar::one());
-                bit_coms.push(&com_one - &transcript.com);
-            } else {
-                public_flips.push(Scalar::zero());
-                xor_flips.push(*bit);
-                bit_coms.push(transcript.com)
-            }
-        }
+
+        let results: Vec<(
+            Scalar,          
+            Scalar, 
+            RistrettoPoint,
+            RistrettoPoint
+        )> = self.private_bits
+            .par_iter()
+            .map(|bit| {
+                let transcript = self.server.com.create_proof_0(*bit);
+                _ = self.verifier.verify(&transcript);
+                let b = flip();
+                if b {
+                    let public_flip = Scalar::one();
+                    let xor_flip = Scalar::one() - bit;
+                    let com_one = self.server.com.commit(Scalar::one(), Scalar::one());
+                    let bit_com = &com_one - &transcript.com;
+                    (public_flip, xor_flip, bit_com, transcript.com)
+                } else {
+                    let public_flip = Scalar::zero();
+                    let xor_flip = *bit;
+                    (public_flip, xor_flip, transcript.com, transcript.com)
+                }
+            })
+            .collect();
+    
+        let (public_flips, xor_flips, bit_coms, private_commits): (Vec<_>, Vec<_>, Vec<_>, Vec<_>) = results.into_iter().unzip_n();
         self.public_bits = public_flips;
         self.xor_bits = xor_flips;
         self.xor_commits = bit_coms;
@@ -336,7 +356,7 @@ impl BinomialRunner {
 
 #[test]
 pub fn test_unbiased_p() {
-    let mut br: BinomialRunner = BinomialRunner::new(10, &[1, 1, 1, 0, 0, 1, 0, 1, 1, 1]);
+    let mut br: BinomialRunner = BinomialRunner::new(&[1, 1, 1, 0, 0, 1, 0, 1, 1, 1]);
     let coms = br.get_x_commits();
     br.input_randomness(&[1, 1, 0, 0, 1, 0]);
     let privrand_coms = br.get_private_random_commits();
@@ -355,7 +375,7 @@ pub fn test_unbiased_p() {
 
 #[test]
 pub fn test_biased_p() {
-    let mut br: BinomialRunner = BinomialRunner::new(10, &[1, 1, 1, 0, 0, 1, 0, 1, 1, 1]);
+    let mut br: BinomialRunner = BinomialRunner::new(&[1, 1, 1, 0, 0, 1, 0, 1, 1, 1]);
     let coms = br.get_x_commits();
     br.rand_p_init(6);
     for _ in 0..6 {

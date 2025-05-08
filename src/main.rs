@@ -10,7 +10,6 @@ type RunnerMap = Arc<Mutex<HashMap<String, BinomialRunner>>>;
 // Define input and output structures for API calls
 #[derive(Deserialize, Debug)]
 pub struct NewRunnerRequest {
-    pub n: i32,
     pub x: Vec<u8>,
 }
 
@@ -97,7 +96,7 @@ async fn new_runner(
     runners: web::Data<RunnerMap>,
 ) -> impl Responder {
     println!("New runner called");
-    let new_runner_instance = BinomialRunner::new(req.n, &req.x);
+    let new_runner_instance = BinomialRunner::new(&req.x);
     let session_id = Uuid::new_v4().to_string(); // Generate new ID
     let mut runners_map = runners.lock().unwrap();
     runners_map.insert(session_id.clone(), new_runner_instance);
