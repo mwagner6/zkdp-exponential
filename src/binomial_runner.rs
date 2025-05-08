@@ -353,104 +353,139 @@ impl BinomialRunner {
     }
 }
 
+
+// Tests/full working of BinomialRunner with variable options. Unused variables would be displayed on the frontend. 
 #[test]
 pub fn test_unbiased_p() {
     let mut rng = rand::thread_rng();
-    let bits: Vec<u8> = (0..10000).map(|_| rng.gen_bool(0.5) as u8).collect();
+    let bits: Vec<u8> = (0..100000).map(|_| rng.gen_bool(0.5) as u8).collect();
     let init_sum: u32 = bits.iter().map(|&x| x as u32).sum();
-    println!("Initial count: {}", init_sum);
-    let mut br: BinomialRunner = BinomialRunner::new(&bits);
-    let coms = br.get_x_commits();
-    let randbits: Vec<u8> = (0..10000).map(|_| rng.gen_bool(0.5) as u8).collect();
-    br.input_randomness(&randbits);
-    let privrand_coms = br.get_private_random_commits();
-    let pubrand = br.get_public_random();
-    let xorbits = br.get_xor_bits();
+    println!("Initial count: {}", init_sum); // Check initial count of positives
+
+    let mut br: BinomialRunner = BinomialRunner::new(&bits); // Initialize a new BinomialRunner (inputs bits, calculates commitments)
+
+    let _coms = br.get_x_commits(); // Get commitments out 
+
+    let randbits: Vec<u8> = (0..100000).map(|_| rng.gen_bool(0.5) as u8).collect();
+    br.input_randomness(&randbits); // Input private randomness into our BinomialRunner
+
+    let _privrand_coms = br.get_private_random_commits(); // Get commitments of private randomness
+    let _pubrand = br.get_public_random(); // Get publicly decided random bits 
+    let xorbits = br.get_xor_bits(); // Get bits after XORing public and private bits
+
     let xorbitsum: u32 = xorbits.iter().map(|&x| x as u32).sum(); 
-    println!("XORed bits sum: {}", xorbitsum);
-    let xorcoms = br.get_xor_commits();
-    let output = br.compute_sum();
+    println!("XORed bits sum: {}", xorbitsum); // Check amount of noise added
+
+    let _xorcoms = br.get_xor_commits(); // Get commitments of XOR bits
+
+    let output = br.compute_sum(); // Compute final output sum of our mechanism
     println!("Output: {}", output);
-    let z = br.get_z();
-    br.commit_pedersons();
-    let lhs = br.get_lhs();
-    let rhs = br.get_rhs();
-    assert_eq!(lhs, rhs)
+    let _z = br.get_z(); 
+
+    br.commit_pedersons(); // Calculate final pedersons to do final checks. 
+
+    let lhs = br.get_lhs(); // Get string representations of our 
+    let rhs = br.get_rhs(); // final commitment sums in order to check
+    assert_eq!(lhs, rhs) // Final check that our process was run faithfully
 }
 
+
+// This test is almost the same as the unbiased p without cheating. It has one change, which overwrites the bits after 
+// the XOR operation (which would be how an adversary would attempt to cheat the distribution). The idea is to catch this
 #[test]
 pub fn test_unbiased_p_cheat() {
     let mut rng = rand::thread_rng();
-    let bits: Vec<u8> = (0..10000).map(|_| rng.gen_bool(0.5) as u8).collect();
+    let bits: Vec<u8> = (0..100000).map(|_| rng.gen_bool(0.5) as u8).collect();
     let init_sum: u32 = bits.iter().map(|&x| x as u32).sum();
     println!("Initial count: {}", init_sum);
+
     let mut br: BinomialRunner = BinomialRunner::new(&bits);
-    let coms = br.get_x_commits();
-    let randbits: Vec<u8> = (0..10000).map(|_| rng.gen_bool(0.5) as u8).collect();
+
+    let _coms = br.get_x_commits();
+
+    let randbits: Vec<u8> = (0..100000).map(|_| rng.gen_bool(0.5) as u8).collect();
     br.input_randomness(&randbits);
-    let privrand_coms = br.get_private_random_commits();
-    let pubrand = br.get_public_random();
+
+    let _privrand_coms = br.get_private_random_commits();
+    let _pubrand = br.get_public_random();
     let xorbits = br.get_xor_bits();
+
     let xorbitsum: u32 = xorbits.iter().map(|&x| x as u32).sum(); 
     println!("XORed bits sum: {}", xorbitsum);
-    br.overwrite_xor_bits(&vec![1; xorbits.len()]);
-    let xorcoms = br.get_xor_commits();
+
+    br.overwrite_xor_bits(&vec![1; xorbits.len()]); // Overwrite our XORed bits with all 1's. This would cause the output to be higher than it should be
+    let _xorcoms = br.get_xor_commits();
+
     let output = br.compute_sum();
     println!("Output: {}", output);
-    let z = br.get_z();
+    let _z = br.get_z();
+
     br.commit_pedersons();
     let lhs = br.get_lhs();
     let rhs = br.get_rhs();
-    assert_ne!(lhs, rhs)
+    assert_ne!(lhs, rhs) // When we do our final check, we ensure that our LHS and RHS were different - we ensure that we catch the 'cheat'
 }
 
+// This test shows a faithful implementation of a biased binomial mechanism
 #[test]
 pub fn test_biased_p() {
     let mut rng = rand::thread_rng();
     let bits: Vec<u8> = (0..10000).map(|_| rng.gen_bool(0.5) as u8).collect();
-    let mut br: BinomialRunner = BinomialRunner::new(&bits);
-    let coms = br.get_x_commits();
-    br.rand_p_init(6);
-    for _ in 0..6 {
-        let mut randbits: Vec<u8> = vec![1; 3257];
-        randbits.extend(vec![0; 6743]);
-        assert!(br.random_variable_p_input(3257, 10000, &randbits));
+    let mut br: BinomialRunner = BinomialRunner::new(&bits); // Our initialization is the same - meant for maximum simplicity when changing systems
+
+    let _coms = br.get_x_commits();
+
+    br.rand_p_init(1000); // Tells our BinomialRunner that we will be using biased p with 100 bits
+    for _ in 0..1000 { // For each biased flip, we need to run our process for a public coin. This is computationally expensive, but sadly difficult to avoid
+        let mut randbits: Vec<u8> = vec![1; 17];
+        randbits.extend(vec![0; 83]);
+        assert!(br.random_variable_p_input(17, 100, &randbits)); // Function that computes commitments, and checks that the sum of our bits is equal to our proposed numerator
     }
-    assert!(br.random_variable_p_end());
-    let xorbits = br.get_xor_bits();
+    assert!(br.random_variable_p_end()); // Final check on our variable p randomness. Checks that we have computed the correct number of bits. 
+    
+    let xorbits = br.get_xor_bits(); // The remaining part is again the same as for the unbiased p. Some functions compute differently.
     println!("XOR bits: {:?}", xorbits);
-    let xorcoms = br.get_xor_commits();
+
+    let _xorcoms = br.get_xor_commits();
+
     let out = br.compute_sum();
     println!("XOR sum: {}", out);
-    let z = br.get_z();
+    let _z = br.get_z();
     br.commit_pedersons();
     let lhs = br.get_lhs();
     let rhs = br.get_rhs();
-    assert_eq!(lhs, rhs);
+    assert_eq!(lhs, rhs); // Check that our noise was correctly added.
 }
 
+// This function tests that we catch cheating with the biased binomial mechanism. It is essentially the same as without cheating, with one extra call.
 #[test]
 pub fn test_biased_p_cheat() {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::thread_rng(); // Same initialization as before
     let bits: Vec<u8> = (0..10000).map(|_| rng.gen_bool(0.5) as u8).collect();
     let mut br: BinomialRunner = BinomialRunner::new(&bits);
-    let coms = br.get_x_commits();
-    br.rand_p_init(6);
-    for _ in 0..6 {
-        let mut randbits: Vec<u8> = vec![1; 3257];
-        randbits.extend(vec![0; 6743]);
-        assert!(br.random_variable_p_input(3257, 10000, &randbits));
+
+    let _coms = br.get_x_commits();
+
+    br.rand_p_init(1000); // Same randomness input process as before. 
+    for _ in 0..1000 {
+        let mut randbits: Vec<u8> = vec![1; 17];
+        randbits.extend(vec![0; 83]);
+        assert!(br.random_variable_p_input(17, 100, &randbits));
     }
     assert!(br.random_variable_p_end());
+
     let xorbits = br.get_xor_bits();
     println!("XOR bits: {:?}", xorbits);
-    let xorcoms = br.get_xor_commits();
-    br.overwrite_xor_bits(&vec![0; xorbits.len()]);
+
+    let _xorcoms = br.get_xor_commits();
+
+    br.overwrite_xor_bits(&vec![0; xorbits.len()]); // This is our cheat. Here, we overwrite all our final bits with 0's, artificially decreasing the count.
+
     let out = br.compute_sum();
     println!("XOR sum: {}", out);
-    let z = br.get_z();
+    let _z = br.get_z();
     br.commit_pedersons();
     let lhs = br.get_lhs();
     let rhs = br.get_rhs();
-    assert_ne!(lhs, rhs);
+    assert_ne!(lhs, rhs); // Check that our lhs and rhs are different, ensuring we catch the cheating.
 }
