@@ -33,19 +33,6 @@ pub fn fiat_shamir_sigma_proof_creation(c: &mut Criterion){
 }
 
 
-pub fn fiat_shamir_sigma_proof_verification(c: &mut Criterion){
-    
-    let h = RistrettoPoint::from_uniform_bytes(b"this is another secret that should never be disclosed to anyone ");
-    let g = constants::RISTRETTO_BASEPOINT_POINT;
-   
-    let num_shares = 2;
-    let client = ss::participants::Client::new(num_shares, g, h);
-    let transcript = client.com.create_proof_1();
-
-    let board = ss::participants::Board{g, h};    
-    c.bench_function("proof-verification", |b| b.iter(|| board.verify(&transcript)));
-}
-
 pub fn aggregation(c: &mut Criterion){
 
     let num_clients = 100000;
@@ -101,5 +88,5 @@ pub fn com_agg(c: &mut Criterion){
     c.bench_function("com-aggregation-n=1000", |b| b.iter(|| aux_com_agg()));
 
 }
-criterion_group!(benches, ecc_commitment, fiat_shamir_sigma_proof_creation, fiat_shamir_sigma_proof_verification, aggregation, com_agg);
+criterion_group!(benches, ecc_commitment, fiat_shamir_sigma_proof_creation, aggregation, com_agg);
 criterion_main!(benches);

@@ -5,6 +5,7 @@ use coinflip::flip;
 use num_bigint::BigUint;
 use rayon::prelude::*;
 use rand_core::OsRng;
+#[cfg(test)]
 use crate::rand::Rng;
 
 // Helper function to unzip after parallel iters
