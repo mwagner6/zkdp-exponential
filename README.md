@@ -1,11 +1,24 @@
-# Verifiable Differential Privacy
+# Zero-Knowledge Differential Privacy for Unbiased and Biased Binomial Mechanisms 
 
 **NOTE:** This is not production ready code, and is mostly for the purpose of a ZKDP demo accessible at zkdp.org. Huge credits to Ari Biswas and his original work, which was the groundwork for this project (https://github.com/abiswas3/Verifiable-Differential-Privacy)
 
-```bash
-***Key Changes***
-```
+# Key Changes
 
-```bash
+Most of the backend work for this project was done in the ```binomial_runner.rs``` file. This file defined a rust ```struct``` that can work through the full process of a zero-knowledge verification of a binomial implementation of differential privacy. This aggregated code from the original codebase into a single streamlined process, with some optimization through parallelization and optimized vector handling in order to allow the (somewhat) faster handling of larger datasets and wider binomial distributions. This file also includes the work done to implement the public biased coin flip mechanism described in the report, as well as its verification, as well as the full process of the biased binomial mechanism.
 
-```
+The ```main.rs``` file contains the work for exposing the ```BinomialRunner```'s functionality as a server, accessible through GET and POST requests. This server is relatively robust, and can in theory support any number of concurrent users, memory and computing power allowing. I have not done a lot of server work, so there are likely some issues that need to be fixed, but it is funcitonal.
+
+In the test cases at the bottom of the file, the usage of the functions is detailed (both for faithful and cheating implementations of a mechanism). This is to help the understanding of each of the functions, and its role in the process of computing a full zero-knowledge differentially private count. The tests also serve as a benchmark, and their runtimes should display around what the system is capable of. With the somewhat large numbers present for number of input bits and number of random bits, the runtime has been typically around 20-25s. This could be further optimized, but is at its core bottlenecked by the operation of calculating Pederson commitments onto the Ristretto curve, which is computationally relatively expensive. 
+
+The entire functionality is accessible online at zkdp.org, a site meant to walk the user through a zero-knowledge differential privacy proof, and explain at a basic level what is happening behind the scenes. This frontend is also included in this project, and accesses the rust backend as a hosted server. 
+
+This project's implementatino has some limitations and there are some ideas which I'd like to continue to work on:
+- A simple one would be to improve data input to either accept non-binary input data, or to use bit representation rather than u8 on the input. The time saved may be marginal, but this might result in a meaningful memory improvement, especially on the frontend. Currently, the struct accepts u8, and assumes all inputs are 0 or 1, but the capability is in the code to verify with zero-knowledge via Sigma-OR proofs whether inputs truly are bits. This is why inputs were originally in ```&[u8]``` format. 
+  
+- Another improvement would be to include the zero-knowledge verification for randomized response implementation. This would be somewhat more difficult, as it requires some ZK techniques beyond pederson commitments (or generally one-way homomorphic functions) since verifying a bit 'flipping' rather than addition takes different methods. However, there are crates that could help this implementation.
+  
+- An idea could be to separate BinomialRunner into two (or three) structs, with instances available separately to the prover and verifier, to more closely simulate a true ZK verification process. Currently, the struct essentially functions as the prover and verifier, which is OK for an example, but in reality it would be ideal for someone to actually act as the verifier, which would make the current implementation insecure, as it would expose the true data and randomness. Thus, separating the server to function as a 'middleman' between a prover and verifier, each of whom can access only their side, would be a more realistic implementation of true ZKDP.
+  
+- Generally, the code could use more error handling and robustness. Currently, if the functions are called in the correct order with correct inputs, there will very likely be no errors (none have been encountered, much thanks to Rust's type system), but in the event of incorrect parameters or order of calls, the struct would likely fail.
+  
+- Finally, I could pursue the original goal of the project, which was to port the ZKDP mechanism to WebAssembly. This would be more of an undertaking, as it would require rewriting far more of hte underlying code, due to imcompatibilities with some core crates with WASM. 
