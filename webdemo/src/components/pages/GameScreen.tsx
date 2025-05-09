@@ -5,7 +5,9 @@ import { Button } from '../ui/button';
 import { useCSVReader } from 'react-papaparse';
 import MorraAnimation from '../morra/MorraAnimation';
 
-const API_BASE_URL = 'https://zkdp-backend-production.up.railway.app';
+const API_BASE_URL = process.env.NODE_ENV === 'development' 
+  ? 'http://localhost:9537'  // Local backend
+  : 'https://zkdp-backend-production.up.railway.app';  // Production backend
 
 interface LhsResponse {
   lhs: number;
@@ -140,6 +142,10 @@ export default function GameScreen({ onBack }: GameScreenProps) {
   const [morraAnimationCompleted, setMorraAnimationCompleted] = useState<boolean>(false);
   const [xorCompleted, setXorCompleted] = useState<boolean>(false);
   const [uniformityConfidenceInterval, setUniformityConfidenceInterval] = useState<string | null>(null);
+  const [isModifyingXOR, setIsModifyingXOR] = useState<boolean>(false);
+  const [originalXORBits, setOriginalXORBits] = useState<NoiseBit[]>([]);
+  const [isDraggingXOR, setIsDraggingXOR] = useState<boolean>(false);
+  const [lastDraggedXORIndex, setLastDraggedXORIndex] = useState<number | null>(null);
 
   // State for Step 9: Compute Sum (y)
   const [noisySumY, setNoisySumY] = useState<number | null>(null);
@@ -159,6 +165,15 @@ export default function GameScreen({ onBack }: GameScreenProps) {
 
   // States for backend integration
   const [sessionId, setSessionId] = useState<string | null>(null);
+
+  const [isInitializing, setIsInitializing] = useState<boolean>(false);
+  const [isCommittingInputs, setIsCommittingInputs] = useState<boolean>(false);
+  const [isCommittingPrivateBits, setIsCommittingPrivateBits] = useState<boolean>(false);
+  const [isComputingXOR, setIsComputingXOR] = useState<boolean>(false);
+  const [isComputingSum, setIsComputingSum] = useState<boolean>(false);
+  const [isComputingZ, setIsComputingZ] = useState<boolean>(false);
+  const [isCommittingYZ, setIsCommittingYZ] = useState<boolean>(false);
+  const [isVerifying, setIsVerifying] = useState<boolean>(false);
 
   const isStepCompleted = (stepName: string) => {
     return completedSteps.has(stepName);
@@ -267,20 +282,21 @@ export default function GameScreen({ onBack }: GameScreenProps) {
   // Optimize the handleCommitInputs function
   const handleCommitInputs = useCallback(async () => {
     if (isCommitting || clients.length === 0) return;
-    setIsCommitting(true);
+    setIsCommittingInputs(true);
 
-    // Send commitments to backend
-    const response = await fetch(`${API_BASE_URL}/commits`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        session_id: sessionId
-      })
-    });
+    try {
+      // Send commitments to backend
+      const response = await fetch(`${API_BASE_URL}/commits`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          session_id: sessionId
+        })
+      });
 
-    if (response.ok) {
+      if (response.ok) {
         const data = (await response.json()) as CommitsResponse;
         console.log("Commits:", data.commits);
 
@@ -293,20 +309,21 @@ export default function GameScreen({ onBack }: GameScreenProps) {
         }));
 
         setPedersenCommitments(newCommitments);
-    } else {
+        
+        // Set a timeout to mark all commitments as committed after animations
+        setTimeout(() => {
+          setPedersenCommitments(prev => 
+            prev.map(commit => ({ ...commit, status: 'committed' }))
+          );
+          setIsCommitting(false);
+          handleStepComplete('set-epsilon');
+        }, 1000);
+      } else {
         console.error("Failed to get commits:", response.status, response.statusText);
-        return undefined;
+      }
+    } finally {
+      setIsCommittingInputs(false);
     }
-    
-    // Set a timeout to mark all commitments as committed after animations
-    setTimeout(() => {
-      setPedersenCommitments(prev => 
-        prev.map(commit => ({ ...commit, status: 'committed' }))
-      );
-      setIsCommitting(false);
-      handleStepComplete('set-epsilon');
-    }, 1000);
-      
   }, [isCommitting, clients, handleStepComplete, sessionId]);
 
   // Define the component that renders a single cell in the virtualized grid
@@ -435,31 +452,31 @@ export default function GameScreen({ onBack }: GameScreenProps) {
 
   const handleCommitPrivateBits = useCallback(async () => {
     if (isCommitting || privateBits.length === 0) return;
-    setIsCommitting(true);
+    setIsCommittingPrivateBits(true);
 
-    // Mark all bits as committed and generate random s
-    setPrivateBits(prev => 
-      prev.map(bit => ({
-        ...bit,
-        committed: true,
-      }))
-    );
+    try {
+      // Mark all bits as committed and generate random s
+      setPrivateBits(prev => 
+        prev.map(bit => ({
+          ...bit,
+          committed: true,
+        }))
+      );
 
-    // Get commitment from backend
-    const response = await fetch(`${API_BASE_URL}/priv_random_commits`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        session_id: sessionId
-      })
-    });
+      // Get commitment from backend
+      const response = await fetch(`${API_BASE_URL}/priv_random_commits`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          session_id: sessionId
+        })
+      });
 
-    if (response.ok) {
+      if (response.ok) {
         const data = (await response.json()) as PrivateCommitsResponse;
         console.log("Commits:", data.private_commits);
-        console.log("data", data);
 
         const newCommitments = privateBits.map((bit, index) => ({
           id: index,
@@ -470,18 +487,19 @@ export default function GameScreen({ onBack }: GameScreenProps) {
         }));
 
         setPedersenCommitments(newCommitments);
-    } else {
+
+        // Set a timeout to complete the step after animations
+        setTimeout(() => {
+          setIsCommitting(false);
+          handleStepComplete('prove-binary');
+        }, 1000);
+      } else {
         console.error("Failed to get commits:", response.status, response.statusText);
-        return undefined;
+      }
+    } finally {
+      setIsCommittingPrivateBits(false);
     }
-
-
-    // Set a timeout to complete the step after animations
-    setTimeout(() => {
-      setIsCommitting(false);
-      handleStepComplete('prove-binary');
-    }, 1000);
-  }, [isCommitting, privateBits, handleStepComplete]);
+  }, [isCommitting, privateBits, handleStepComplete, sessionId]);
 
   const formatFileSize = (bytes: number): string => {
     if (bytes === 0) return '0 Bytes';
@@ -554,54 +572,59 @@ export default function GameScreen({ onBack }: GameScreenProps) {
 
   const processSelectedColumn = async () => {
     if (!selectedColumn) return;
+    setIsInitializing(true);
 
-    const column = csvColumns.find(col => col.name === selectedColumn);
-    if (!column) return;
+    try {
+      const column = csvColumns.find(col => col.name === selectedColumn);
+      if (!column) return;
 
-    const newClients: ClientInput[] = column.values.map((value, index) => {
-      let binaryValue: number;
-      if (column.isBinary) {
-        binaryValue = value === true || value === 1 ? 1 : 0;
+      const newClients: ClientInput[] = column.values.map((value, index) => {
+        let binaryValue: number;
+        if (column.isBinary) {
+          binaryValue = value === true || value === 1 ? 1 : 0;
+        } else {
+          binaryValue = (value as number) >= threshold ? 1 : 0;
+        }
+
+        return {
+          id: index + 1,
+          value: binaryValue,
+          committed: true
+        };
+      });
+
+      setClients(newClients);
+      setCount(newClients.reduce((sum, client) => sum + client.value, 0));
+      setDisplayedClientCount(newClients.length);
+
+      // Initialize session
+      const response = await fetch(`${API_BASE_URL}/new`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          // n: newClients.length, // depricated by max
+          x: newClients.map(client => client.value)
+        })
+      });
+
+      if (response.ok) {
+        const sessionId = await response.text();
+        setSessionId(sessionId);
+        console.log("Session ID:", sessionId);
+        handleStepComplete('commit-inputs');
       } else {
-        binaryValue = (value as number) >= threshold ? 1 : 0;
+        console.error("Failed to initialize session:", response.status, response.statusText);
+        try {
+          const errorData = await response.json();
+          console.error("Error details:", errorData);
+        } catch (e) {
+          console.error("Failed to parse error response:", e);
+        }
       }
-
-      return {
-        id: index + 1,
-        value: binaryValue,
-        committed: true
-      };
-    });
-
-    setClients(newClients);
-    setCount(newClients.reduce((sum, client) => sum + client.value, 0));
-    setDisplayedClientCount(newClients.length);
-    handleStepComplete('commit-inputs');
-
-    // Initialize session
-    const response = await fetch(`${API_BASE_URL}/new`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        n: newClients.length,
-        x: newClients.map(client => client.value)
-      })
-    });
-
-    if (response.ok) {
-      const sessionId = await response.text(); // Get the session ID as text
-      setSessionId(sessionId);
-      console.log("Session ID:", sessionId);
-    } else {
-      console.error("Failed to initialize session:", response.status, response.statusText);
-      try {
-        const errorData = await response.json();
-        console.error("Error details:", errorData);
-      } catch (e) {
-        console.error("Failed to parse error response:", e);
-      }
+    } finally {
+      setIsInitializing(false);
     }
   };
 
@@ -770,27 +793,28 @@ export default function GameScreen({ onBack }: GameScreenProps) {
   };
 
   const handleMorraComplete = async() => {
-    const response = await fetch(`${API_BASE_URL}/public_random`, { // Changed to POST
-      method: 'POST',
-      headers: {
+    try {
+      const response = await fetch(`${API_BASE_URL}/public_random`, {
+        method: 'POST',
+        headers: {
           'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        session_id: sessionId,
-      })
-    });
+        },
+        body: JSON.stringify({
+          session_id: sessionId,
+        })
+      });
 
-    if (response.ok) {
-      const data = (await response.json()) as RandomResponse;
-      console.log("Public Random Bits:", data.random_bits);
-      const generatedPublicBits = data.random_bits.map(value => ({ value }));
-      setPublicBits(generatedPublicBits);
-    } else {
-      console.error("Failed to get public random:", response.status, response.statusText);
+      if (response.ok) {
+        const data = (await response.json()) as RandomResponse;
+        console.log("Public Random Bits:", data.random_bits);
+        const generatedPublicBits = data.random_bits.map(value => ({ value }));
+        setPublicBits(generatedPublicBits);
+      } else {
+        console.error("Failed to get public random:", response.status, response.statusText);
+      }
+    } finally {
+      setMorraAnimationCompleted(true);
     }
-
-    setMorraAnimationCompleted(true);
-    // Generate n_b public bits when Morra completes
   };
 
   // New component for Public Bits Grid
@@ -833,31 +857,56 @@ export default function GameScreen({ onBack }: GameScreenProps) {
       console.error("Cannot compute XOR: Bit arrays mismatch or empty.");
       return;
     }
-    // const resultBits = privateBits.map((privateBit, index) => ({
-    //   value: privateBit.value ^ publicBits[index].value,
-    // }));
+    setIsComputingXOR(true);
 
-    // Get XOR bits from backend
-    const response = await fetch(`${API_BASE_URL}/xor_bits`, {
+    try {
+      const response = await fetch(`${API_BASE_URL}/xor_bits`, {
         method: 'POST',
         headers: {
-            'Content-Type': 'application/json',
+          'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           session_id: sessionId
         })
-    });
+      });
 
-    if (response.ok) {
+      if (response.ok) {
         const data = (await response.json()) as XorBitsResponse;
         console.log("XOR Bits:", data.xor_bits);
         setNoiseBits(data.xor_bits.map(bit => ({ value: bit })));
-    } else {
+        setXorCompleted(true);
+      } else {
         console.error("Failed to get XOR bits:", response.status, response.statusText);
+      }
+    } finally {
+      setIsComputingXOR(false);
     }
+  };
 
-    // setNoiseBits(resultBits);
-    setXorCompleted(true);
+  const overwriteXORBits = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/overwrite_xor_bits`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          session_id: sessionId,
+          bits: noiseBits.map(bit => bit.value)
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log("Response data:", data);
+      } else {
+        console.error("Failed to send randomness:", response.status, response.statusText);
+        const errorData = await response.json();
+        console.error("Error details:", errorData);
+      }
+    } catch (error) {
+      console.error("Network error:", error);
+    }
   };
 
   // Add useEffect to calculate uniformity confidence interval
@@ -950,116 +999,128 @@ export default function GameScreen({ onBack }: GameScreenProps) {
   // Handler for Step 9: Compute Sum (y)
   const handleComputeSumY = async () => {
     if (calculationProgress !== 0 || noiseBits.length === 0) return;
+    setIsComputingSum(true);
 
-    setCalculationProgress(1);
-    setNoisySumY(null);
-    setIntermediateValues({});
+    try {
+      setCalculationProgress(1);
+      setNoisySumY(null);
+      setIntermediateValues({});
 
-    // Calculate all values first
-    const sumNoise = noiseBits.reduce((sum, bit) => sum + bit.value, 0);
-    const n_b = calculateNB(epsilon);
-    const nbOver2 = n_b / 2;
-    const noiseVal = sumNoise - nbOver2;
-    const originalY = count + noiseVal;
-    const finalY = Math.ceil(originalY);
+      // Calculate all values first
+      const sumNoise = noiseBits.reduce((sum, bit) => sum + bit.value, 0);
+      const n_b = calculateNB(epsilon);
+      const nbOver2 = n_b / 2;
+      const noiseVal = sumNoise - nbOver2;
+      const originalY = count + noiseVal;
+      const finalY = Math.ceil(originalY);
 
-    // Make API call
-    const response = await fetch(`${API_BASE_URL}/compute_sum`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        session_id: sessionId
-      })
-    });
+      // Make API call
+      const response = await fetch(`${API_BASE_URL}/compute_sum`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          session_id: sessionId
+        })
+      });
 
-    let apiSum: number | undefined;
-    if (response.ok) {
-      const data = await response.json() as { final_sum: number };
-      console.log("Final Sum:", data.final_sum);
-      apiSum = data.final_sum;
-      console.log("API Sum:", apiSum);
-    } else {
-      console.error("Failed to compute sum:", response.status, response.statusText);
-    }
+      let apiSum: number | undefined;
+      if (response.ok) {
+        const data = await response.json() as { final_sum: number };
+        console.log("Final Sum:", data.final_sum);
+        apiSum = data.final_sum;
+        console.log("API Sum:", apiSum);
+      } else {
+        console.error("Failed to compute sum:", response.status, response.statusText);
+      }
 
-    // Now update UI with animations
-    setTimeout(() => {
-      setIntermediateValues(prev => ({ ...prev, sumNoise }));
-      
+      // Now update UI with animations
       setTimeout(() => {
-        setIntermediateValues(prev => ({ ...prev, nbOver2 }));
-
+        setIntermediateValues(prev => ({ ...prev, sumNoise }));
+        
         setTimeout(() => {
-          setIntermediateValues(prev => ({ ...prev, noiseVal }));
+          setIntermediateValues(prev => ({ ...prev, nbOver2 }));
 
           setTimeout(() => {
-            setIntermediateValues(prev => ({ ...prev, noiseVal, originalNoisySumY: originalY }));
-            // setNoisySumY(apiSum ?? finalY);
-            setNoisySumY(finalY);
+            setIntermediateValues(prev => ({ ...prev, noiseVal }));
 
             setTimeout(() => {
-              setCalculationProgress(2);
+              setIntermediateValues(prev => ({ ...prev, noiseVal, originalNoisySumY: originalY }));
+              setNoisySumY(finalY);
+
+              setTimeout(() => {
+                setCalculationProgress(2);
+              }, 700);
             }, 700);
           }, 700);
         }, 700);
-      }, 700);
-    }, 500);
+      }, 500);
+    } finally {
+      setIsComputingSum(false);
+    }
   };
 
   const handleComputeZ = async () => {
     if (noisySumY === null) return;
+    setIsComputingZ(true);
 
-    setCalculationProgress(1);
-    setZValue(null);
+    try {
+      setCalculationProgress(1);
+      setZValue(null);
 
-    const response = await fetch(`${API_BASE_URL}/z`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        session_id: sessionId,
-      })
-    });
+      const response = await fetch(`${API_BASE_URL}/z`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          session_id: sessionId,
+        })
+      });
 
-    if (response.ok) {
-      const data = await response.json() as { z: number };
-      console.log("Z:", data.z);
-      setZValue(data.z);
-      handleStepComplete('commit-pedersen'); // Add this line to unlock step 11
-    } else {
-      console.error("Failed to compute z:", response.status, response.statusText);
+      if (response.ok) {
+        const data = await response.json() as { z: number };
+        console.log("Z:", data.z);
+        setZValue(data.z);
+        handleStepComplete('commit-pedersen');
+      } else {
+        console.error("Failed to compute z:", response.status, response.statusText);
+      }
+    } finally {
+      setIsComputingZ(false);
     }
-  }
+  };
 
   // Handler for Step 11: Commit y and z
   const handleCommitYZ = async () => {
     if (isYZCommitted || noisySumY === null || zValue === null) return;
-    // Simulate commitment process
-    setTimeout(() => {
-      setIsYZCommitted(true);
-    }, 500); // Short delay for visual feedback
+    setIsCommittingYZ(true);
 
-    const response = await fetch(`${API_BASE_URL}/commit_pedersons`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        session_id: sessionId,
-      })
-    });
+    try {
+      const response = await fetch(`${API_BASE_URL}/commit_pedersons`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          session_id: sessionId,
+        })
+      });
 
-    if (response.ok) {
-      console.log("Pedersen commitments committed");
-    } else {
-      console.error("Failed to commit pedersons:", response.status, response.statusText);
+      if (response.ok) {
+        console.log("Pedersen commitments committed");
+        setIsYZCommitted(true);
+      } else {
+        console.error("Failed to commit pedersons:", response.status, response.statusText);
+      }
+    } finally {
+      setIsCommittingYZ(false);
     }
   };
 
   const verifyProof = async () => {
+    setIsVerifying(true);
     try {
       // Get LHS value
       const lhsResponse = await fetch(`${API_BASE_URL}/lhs`, {
@@ -1104,10 +1165,63 @@ export default function GameScreen({ onBack }: GameScreenProps) {
     } catch (error) {
       console.error("Error during verification:", error);
       return false;
+    } finally {
+      setIsVerifying(false);
     }
-  }
+  };
 
+  const handleXORBitMouseDown = useCallback((index: number) => {
+    if (!isModifyingXOR) return;
+    setIsDraggingXOR(true);
+    setLastDraggedXORIndex(index);
+    // Toggle the bit value
+    setNoiseBits(prev => {
+      const newBits = [...prev];
+      newBits[index] = {
+        ...newBits[index],
+        value: newBits[index].value === 1 ? 0 : 1
+      };
+      return newBits;
+    });
+  }, [isModifyingXOR]);
 
+  const handleXORBitMouseEnter = useCallback((index: number) => {
+    if (isDraggingXOR && lastDraggedXORIndex !== null && isModifyingXOR) {
+      // Toggle all bits between lastDraggedIndex and current index
+      setNoiseBits(prev => {
+        const newBits = [...prev];
+        const start = Math.min(lastDraggedXORIndex, index);
+        const end = Math.max(lastDraggedXORIndex, index);
+        for (let i = start; i <= end; i++) {
+          newBits[i] = {
+            ...newBits[i],
+            value: newBits[lastDraggedXORIndex].value
+          };
+        }
+        return newBits;
+      });
+    }
+  }, [isDraggingXOR, lastDraggedXORIndex, isModifyingXOR]);
+
+  const handleXORBitMouseUp = useCallback(() => {
+    setIsDraggingXOR(false);
+    setLastDraggedXORIndex(null);
+  }, []);
+
+  const handleModifyXOR = () => {
+    setOriginalXORBits([...noiseBits]);
+    setIsModifyingXOR(true);
+  };
+
+  const handleRevertXOR = () => {
+    setNoiseBits([...originalXORBits]);
+    setIsModifyingXOR(false);
+  };
+
+  const handleApplyXORChanges = async () => {
+    await overwriteXORBits();
+    setIsModifyingXOR(false);
+  };
 
   
   
@@ -1357,9 +1471,9 @@ export default function GameScreen({ onBack }: GameScreenProps) {
                     <Button
                       onClick={processSelectedColumn}
                       className="w-full"
-                      disabled={!selectedColumn || step !== 'input'}
+                      disabled={!selectedColumn || step !== 'input' || isInitializing}
                     >
-                      Process Selected Column
+                      {isInitializing ? 'Processing...' : 'Process Selected Column'}
                     </Button>
                   </div>
                 )}
@@ -1412,10 +1526,10 @@ export default function GameScreen({ onBack }: GameScreenProps) {
                 <div className="w-full flex justify-center">
                   <Button 
                     onClick={handleCommitInputs}
-                    disabled={!isStepEnabled('commit-inputs') || clients.length === 0 || isCommitting || step !== 'commit-inputs'}
+                    disabled={!isStepEnabled('commit-inputs') || clients.length === 0 || isCommitting || step !== 'commit-inputs' || isCommittingInputs}
                     className="w-full min-[1300px]:w-1/2 py-4 min-[1300px]:py-6 text-base min-[1300px]:text-lg"
                   >
-                    {isCommitting ? 'Committing...' : 'Commit Inputs'}
+                    {isCommittingInputs ? 'Committing...' : 'Commit Inputs'}
                   </Button>
                 </div>
               </div>
@@ -1517,6 +1631,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
                         onClick={resetSamplingMethod}
                         variant="outline"
                         className="text-sm"
+                        disabled={!isStepEnabled('sample-bits') || step !== 'sample-bits'}
                       >
                         Reset Sampling Method
                       </Button>
@@ -1527,7 +1642,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
                           handleConfirmPrivateBits(privateBits);
                         }}
                         className="text-sm"
-                        disabled={!privateBits.length}
+                        disabled={!privateBits.length || !isStepEnabled('sample-bits') || step !== 'sample-bits'}
                       >
                         Confirm Private Bits
                       </Button>
@@ -1595,10 +1710,10 @@ export default function GameScreen({ onBack }: GameScreenProps) {
                 <div className="w-full flex justify-center">
                   <Button 
                     onClick={handleCommitPrivateBits}
-                    disabled={!isStepEnabled('commit-bits') || privateBits.length === 0 || isCommitting || step !== 'commit-bits'}
+                    disabled={!isStepEnabled('commit-bits') || privateBits.length === 0 || isCommitting || step !== 'commit-bits' || isCommittingPrivateBits}
                     className="w-1/2 py-6 text-lg"
                   >
-                    {isCommitting ? 'Committing...' : 'Commit Private Bits'}
+                    {isCommittingPrivateBits ? 'Committing...' : 'Commit Private Bits'}
                   </Button>
                 </div>
               </div>
@@ -1761,10 +1876,10 @@ export default function GameScreen({ onBack }: GameScreenProps) {
                        <span className="text-4xl font-bold text-gray-600">⊕</span>
                        <Button
                          onClick={handleComputeXOR}
-                         disabled={xorCompleted || privateBits.length === 0 || publicBits.length === 0 || privateBits.length !== publicBits.length || step !== 'xor-bits'}
+                         disabled={xorCompleted || privateBits.length === 0 || publicBits.length === 0 || privateBits.length !== publicBits.length || step !== 'xor-bits' || isComputingXOR}
                          className="px-6 py-3 text-lg"
                        >
-                         {xorCompleted ? "XOR Computed" : "Compute XOR"}
+                         {isComputingXOR ? "Computing XOR..." : xorCompleted ? "XOR Computed" : "Compute XOR"}
                        </Button>
                      </div>
                   </>
@@ -1773,11 +1888,61 @@ export default function GameScreen({ onBack }: GameScreenProps) {
                  {/* Render noise bits only after XOR is done */}
                  {xorCompleted && (
                    <>
-                     <StaticBitGrid
-                       bits={noiseBits}
-                       label="Resulting Private Noise Bits (bᵢ = b'ᵢ ⊕ zᵢ)"
-                       colorTheme="blue" // Noise bits are also private
-                     />
+                     <div className="w-full flex flex-col items-center gap-4">
+                       <div className="w-full max-w-[1200px]">
+                         <div className={`grid grid-cols-[repeat(100,minmax(0,1fr))] gap-0`}>
+                           {noiseBits.map((bit, index) => (
+                             <div
+                               key={index}
+                               className={`aspect-square text-white flex items-center justify-center tooltip ${
+                                 bit.value === 1 ? 'bg-blue-700' : 'bg-blue-500'
+                               } ${isModifyingXOR ? 'cursor-pointer' : ''}`}
+                               style={{ minWidth: '20px', minHeight: '20px' }}
+                               onMouseDown={() => handleXORBitMouseDown(index)}
+                               onMouseEnter={() => handleXORBitMouseEnter(index)}
+                               onMouseUp={handleXORBitMouseUp}
+                             >
+                               <span className={`text-[8px] font-mono ${bit.value === 1 ? 'text-white' : 'text-blue-700'}`}>{bit.value}</span>
+                               <div className="tooltiptext">
+                                 <div className="text-sm whitespace-nowrap">
+                                   <div>Noise Bit {index + 1}:</div>
+                                   <div>Value: {bit.value}</div>
+                                 </div>
+                               </div>
+                             </div>
+                           ))}
+                         </div>
+                       </div>
+                       <div className="flex flex-col items-center gap-4">
+                         {!isModifyingXOR ? (
+                           <Button
+                             onClick={handleModifyXOR}
+                             className="bg-red-500 hover:bg-red-600 text-white px-6 py-3"
+                             disabled={!isStepEnabled('xor-bits') || step !== 'xor-bits'}
+                           >
+                             Modify XOR Output (modify noise added)
+                           </Button>
+                         ) : (
+                           <div className="flex gap-4">
+                             <Button
+                               onClick={handleRevertXOR}
+                               variant="outline"
+                               className="px-6 py-3"
+                               disabled={!isStepEnabled('xor-bits') || step !== 'xor-bits'}
+                             >
+                               Revert to Original
+                             </Button>
+                             <Button
+                               onClick={handleApplyXORChanges}
+                               className="bg-green-500 hover:bg-green-600 text-white px-6 py-3"
+                               disabled={!isStepEnabled('xor-bits') || step !== 'xor-bits'}
+                             >
+                               Apply Changes
+                             </Button>
+                           </div>
+                         )}
+                       </div>
+                     </div>
                      {uniformityConfidenceInterval && (
                         <div className="mt-4 text-sm text-gray-600 p-2 bg-gray-50 rounded border w-full max-w-[1200px] text-center">
                           <strong>Uniformity Check (Wald interval):</strong> {uniformityConfidenceInterval}
@@ -1805,10 +1970,10 @@ export default function GameScreen({ onBack }: GameScreenProps) {
               <div className="flex flex-col items-center gap-4 w-full">
                 <Button
                   onClick={handleComputeSumY}
-                  disabled={!isStepEnabled('compute-sum') || !isStepCompleted('xor-bits') || step !== 'compute-sum' || calculationProgress === 1 || noiseBits.length === 0}
+                  disabled={!isStepEnabled('compute-sum') || !isStepCompleted('xor-bits') || step !== 'compute-sum' || calculationProgress === 1 || noiseBits.length === 0 || isComputingSum}
                   className="px-6 py-3 text-lg mb-6"
                 >
-                  {calculationProgress === 0 ? "Compute Noisy Sum (y)" : calculationProgress === 1 ? "Calculating..." : "Calculation Complete"}
+                  {isComputingSum ? "Computing..." : calculationProgress === 0 ? "Compute Noisy Sum (y)" : calculationProgress === 1 ? "Calculating..." : "Calculation Complete"}
                 </Button>
 
                 {calculationProgress > 0 && noiseBits.length > 0 && (
@@ -1873,10 +2038,10 @@ export default function GameScreen({ onBack }: GameScreenProps) {
                 </div>
                 <Button 
                   onClick={handleComputeZ}
-                  disabled={!isStepEnabled('compute-z') || !isStepCompleted('compute-sum') || step !== 'compute-z' || zCalculationProgress === 1 || pedersenCommitments.length === 0 || privateBits.length === 0}
+                  disabled={!isStepEnabled('compute-z') || !isStepCompleted('compute-sum') || step !== 'compute-z' || zCalculationProgress === 1 || pedersenCommitments.length === 0 || privateBits.length === 0 || isComputingZ}
                   className="px-6 py-3 text-lg mb-6"
                 >
-                  {zCalculationProgress === 0 ? "Compute z" : zCalculationProgress === 1 ? "Calculating..." : "z Calculation Complete"}
+                  {isComputingZ ? "Computing..." : zCalculationProgress === 0 ? "Compute z" : zCalculationProgress === 1 ? "Calculating..." : "z Calculation Complete"}
                 </Button>
                 {zValue !== null && (
                   <div className="text-sm text-blue-700 bg-blue-50 p-1 rounded border border-blue-200 mb-2">
@@ -1925,7 +2090,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
                 {!isYZCommitted ? (
                   <Button 
                     onClick={handleCommitYZ}
-                    disabled={!isStepEnabled('commit-pedersen') || !isStepCompleted('compute-z') || step !== 'commit-pedersen' || noisySumY === null || zValue === null}
+                    disabled={!isStepEnabled('commit-pedersen') || !isStepCompleted('compute-z') || step !== 'commit-pedersen' || noisySumY === null || zValue === null || isCommittingYZ}
                     className="px-6 py-3 text-lg"
                   >
                     Commit Com(y,z)
@@ -1969,12 +2134,10 @@ export default function GameScreen({ onBack }: GameScreenProps) {
                       setVerificationStatus(isValid ? 'success' : 'failure');
                     }, 2000);
                   }}
-                  disabled={!isStepEnabled('verify') || !isStepCompleted('commit-pedersen') || step !== 'verify' || verificationStatus === 'running'}
+                  disabled={!isStepEnabled('verify') || !isStepCompleted('commit-pedersen') || step !== 'verify' || verificationStatus === 'running' || isVerifying}
                   className="px-6 py-3 text-lg"
                 >
-                  {verificationStatus === 'idle' && "Start Verification"}
-                  {verificationStatus === 'running' && "Verifying..."}
-                  {(verificationStatus === 'success' || verificationStatus === 'failure') && "Run Verification Again"}
+                  {isVerifying ? "Verifying..." : verificationStatus === 'idle' ? "Start Verification" : verificationStatus === 'running' ? "Verifying..." : "Run Verification Again"}
                 </Button>
 
                 {verificationStatus === 'running' && (
@@ -1988,7 +2151,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
                 )}
                 {verificationStatus === 'failure' && (
                   <div className="mt-4 p-4 bg-red-100 text-red-800 rounded-lg font-semibold text-lg">
-                    ❌ Verification Failed - You are a liar!
+                    ❌ Verification Failed - The math doesn't check out... you must have lied!
                   </div>
                 )}
               </div>
